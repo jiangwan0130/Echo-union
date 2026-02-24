@@ -1,0 +1,51 @@
+# ============================================================
+# 学生会值班管理系统 — 应用配置模板
+# 复制此文件为 config.yaml 并填写实际值
+# 
+# Docker 本地开发：使用以下配置（需先运行 docker-compose up -d）
+# ============================================================
+
+server:
+  port: 8080
+  base_url: "http://localhost:8080"
+  cors:
+    allow_origins:
+      - "http://localhost:5173"
+
+db:
+  host: "localhost"        # Docker 环境中改为 postgres
+  port: 5432
+  name: "echo_union"
+  user: "echo_union"       # Docker 默认用户
+  password: "echo_union_password"  # Docker 默认密码
+  sslmode: "disable"
+  timezone: "Asia/Shanghai"
+
+redis:
+  addr: "localhost:6379"   # Docker 环境中改为 redis:6379
+  password: "redis_password"  # Docker 默认密码
+  db: 0
+
+auth:
+  jwt_secret: ""         # <-- 必填：随机密钥（至少 32 字符）
+  access_token_ttl: "15m"
+  refresh_token_ttl_default: "24h"
+  refresh_token_ttl_remember_me: "168h"
+  cookie:
+    secure: false        # 生产环境设为 true
+    same_site: "Lax"
+    domain: ""
+
+mail:
+  smtp_host: ""          # <-- 填写 SMTP 服务器
+  smtp_port: 587
+  username: ""
+  password: ""
+  from: ""
+
+log:
+  level: "info"
+  format: "json"
+
+feature:
+  oa_import_enabled: false
