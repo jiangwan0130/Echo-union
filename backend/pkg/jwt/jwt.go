@@ -20,7 +20,8 @@ type Claims struct {
 	UserID       string `json:"user_id"`
 	Role         string `json:"role"`
 	DepartmentID string `json:"department_id"`
-	TokenType    string `json:"token_type"` // "access" | "refresh"
+	TokenType    string `json:"token_type"`            // "access" | "refresh"
+	RememberMe   bool   `json:"remember_me,omitempty"` // 仅 refresh token 使用
 	jwtv5.RegisteredClaims
 }
 
@@ -76,6 +77,7 @@ func (m *Manager) GenerateRefreshToken(userID, role, departmentID string, rememb
 		Role:         role,
 		DepartmentID: departmentID,
 		TokenType:    "refresh",
+		RememberMe:   rememberMe,
 		RegisteredClaims: jwtv5.RegisteredClaims{
 			ID:        uuid.New().String(),
 			IssuedAt:  jwtv5.NewNumericDate(now),

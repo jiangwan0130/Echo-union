@@ -8,6 +8,13 @@ import (
 	"echo-union/backend/internal/model"
 )
 
+// UserListFilters 用户列表查询筛选条件
+type UserListFilters struct {
+	DepartmentID string
+	Role         string
+	Keyword      string
+}
+
 // UserRepository 用户数据访问接口
 type UserRepository interface {
 	Create(ctx context.Context, user *model.User) error
@@ -15,8 +22,10 @@ type UserRepository interface {
 	GetByStudentID(ctx context.Context, studentID string) (*model.User, error)
 	GetByEmail(ctx context.Context, email string) (*model.User, error)
 	Update(ctx context.Context, user *model.User) error
+	Delete(ctx context.Context, id string, deletedBy string) error
 	List(ctx context.Context, offset, limit int) ([]model.User, int64, error)
-	// 📝 按需扩展: Delete, ListByDepartment, BatchCreate 等
+	ListWithFilters(ctx context.Context, filters *UserListFilters, offset, limit int) ([]model.User, int64, error)
+	BatchCreate(ctx context.Context, users []*model.User) (int, error)
 }
 
 // userRepo UserRepository 的 GORM 实现
@@ -73,10 +82,28 @@ func (r *userRepo) Update(ctx context.Context, user *model.User) error {
 }
 
 func (r *userRepo) List(ctx context.Context, offset, limit int) ([]model.User, int64, error) {
+	return r.ListWithFilters(ctx, nil, offset, limit)
+}
+
+func (r *userRepo) ListWithFilters(ctx context.Context, filters *UserListFilters, offset, limit int) ([]model.User, int64, error) {
 	var users []model.User
 	var total int64
 
 	db := r.db.WithContext(ctx).Model(&model.User{})
+
+	// 应用筛选条件
+	if filters != nil {
+		if filters.DepartmentID != "" {
+			db = db.Where("department_id = ?", filters.DepartmentID)
+		}
+		if filters.Role != "" {
+			db = db.Where("role = ?", filters.Role)
+		}
+		if filters.Keyword != "" {
+			like := "%" + filters.Keyword + "%"
+			db = db.Where("name ILIKE ? OR student_id ILIKE ?", like, like)
+		}
+	}
 
 	if err := db.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -90,6 +117,24 @@ func (r *userRepo) List(ctx context.Context, offset, limit int) ([]model.User, i
 	}
 
 	return users, total, nil
+}
+
+func (r *userRepo) Delete(ctx context.Context, id string, deletedBy string) error {
+	return r.db.WithContext(ctx).
+		Model(&model.User{}).
+		Where("user_id = ?", id).
+		Updates(map[string]interface{}{
+			"deleted_by": deletedBy,
+			"deleted_at": gorm.Expr("NOW()"),
+		}).Error
+}
+
+func (r *userRepo) BatchCreate(ctx context.Context, users []*model.User) (int, error) {
+	if len(users) == 0 {
+		return 0, nil
+	}
+	result := r.db.WithContext(ctx).Create(users)
+	return int(result.RowsAffected), result.Error
 }
 
 // [自证通过] internal/repository/user_repo.go

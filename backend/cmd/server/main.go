@@ -19,6 +19,7 @@ import (
 	"echo-union/backend/pkg/database"
 	"echo-union/backend/pkg/jwt"
 	applogger "echo-union/backend/pkg/logger"
+	"echo-union/backend/pkg/redis"
 )
 
 func main() {
@@ -49,18 +50,26 @@ func main() {
 	}
 	logger.Info("数据库连接成功")
 
-	// 4. 初始化 JWT 管理器
+	// 4. 连接 Redis（可选：连接失败时降级运行，不中断启动）
+	var rdb *redis.Client
+	rdb, err = redis.NewClient(&cfg.Redis, logger)
+	if err != nil {
+		logger.Warn("Redis 连接失败，Token 黑名单功能将不可用", zap.Error(err))
+		rdb = nil
+	}
+
+	// 5. 初始化 JWT 管理器
 	jwtMgr := jwt.NewManager(&cfg.Auth)
 
-	// 5. 依赖注入: Repository → Service → Handler
+	// 6. 依赖注入: Repository → Service → Handler
 	repo := repository.NewRepository(db)
-	svc := service.NewService(cfg, repo, jwtMgr, logger)
-	h := handler.NewHandler(svc)
+	svc := service.NewService(cfg, repo, jwtMgr, rdb, logger)
+	h := handler.NewHandler(cfg, svc)
 
-	// 6. 初始化路由
-	engine := router.Setup(cfg, h, jwtMgr, logger)
+	// 7. 初始化路由
+	engine := router.Setup(cfg, h, jwtMgr, rdb, logger)
 
-	// 7. 启动 HTTP 服务器（优雅关闭）
+	// 8. 启动 HTTP 服务器（优雅关闭）
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler:      engine,
@@ -76,7 +85,7 @@ func main() {
 		}
 	}()
 
-	// 8. 监听系统信号，优雅关闭
+	// 9. 监听系统信号，优雅关闭
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-quit
@@ -96,7 +105,10 @@ func main() {
 		sqlDB.Close()
 	}
 
+	// 关闭 Redis 连接
+	if rdb != nil {
+		rdb.Close()
+	}
+
 	logger.Info("服务器已关闭")
 }
-
-// [自证通过] cmd/server/main.go

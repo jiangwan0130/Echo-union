@@ -1170,6 +1170,8 @@ Authorization: Bearer <access_token>
 
 ## 七、换班模块 (Swap)
 
+> **⚠️ 二期工程内容** — 换班模块计划在二期实现，以下接口为设计预案，尚未实现。
+
 ### 7.1 发起换班申请
 
 **接口路径**: `POST /api/v1/swaps`
@@ -1319,6 +1321,8 @@ Authorization: Bearer <access_token>
 ---
 
 ## 八、签到模块 (Duty)
+
+> **⚠️ 二期工程内容** — 签到签退模块计划在二期实现，以下接口为设计预案，尚未实现。
 
 ### 8.1 获取今日值班
 
@@ -1495,6 +1499,8 @@ Authorization: Bearer <access_token>
 ---
 
 ## 九、通知模块 (Notification)
+
+> **⚠️ 二期工程内容** — 通知模块计划在二期实现，以下接口为设计预案，尚未实现。
 
 ### 9.1 获取消息列表
 
@@ -1757,6 +1763,8 @@ Authorization: Bearer <access_token>
 ---
 
 ### 11.2 导出签到统计
+
+> **⚠️ 二期工程内容** — 签到统计导出依赖签到模块，计划在二期实现。
 
 **接口路径**: `GET /api/v1/exports/duty-stats`
 

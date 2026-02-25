@@ -6,12 +6,14 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"echo-union/backend/pkg/jwt"
+	"echo-union/backend/pkg/redis"
 	"echo-union/backend/pkg/response"
 )
 
 // JWTAuth JWT 认证中间件
 // 从 Authorization: Bearer <token> 中提取并验证 Access Token
-func JWTAuth(jwtMgr *jwt.Manager) gin.HandlerFunc {
+// rdb 可为 nil（Redis 不可用时降级：跳过黑名单检查）
+func JWTAuth(jwtMgr *jwt.Manager, rdb *redis.Client) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if authHeader == "" {
@@ -40,12 +42,26 @@ func JWTAuth(jwtMgr *jwt.Manager) gin.HandlerFunc {
 			return
 		}
 
-		// 📝 待实现: 检查 Token 黑名单（Redis）
+		// 检查 Token 黑名单（Redis 可用时）
+		if rdb != nil {
+			blacklisted, err := rdb.IsBlacklisted(c.Request.Context(), claims.ID)
+			if err == nil && blacklisted {
+				response.Unauthorized(c, 11003, "Token 已被吊销")
+				c.Abort()
+				return
+			}
+			// Redis 出错时降级放行（fail-open），日志由 Redis 客户端处理
+		}
 
 		// 将用户信息注入上下文
 		c.Set("user_id", claims.UserID)
 		c.Set("role", claims.Role)
 		c.Set("department_id", claims.DepartmentID)
+		// Logout 需要 JTI 和过期时间用于加入黑名单
+		c.Set("token_jti", claims.ID)
+		if claims.ExpiresAt != nil {
+			c.Set("token_exp", claims.ExpiresAt.Time)
+		}
 
 		c.Next()
 	}
@@ -74,5 +90,3 @@ func RoleAuth(allowedRoles ...string) gin.HandlerFunc {
 		c.Abort()
 	}
 }
-
-// [自证通过] internal/api/middleware/auth.go
