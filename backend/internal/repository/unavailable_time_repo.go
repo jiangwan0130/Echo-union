@@ -68,6 +68,6 @@ func (r *unavailableTimeRepo) Delete(ctx context.Context, id string, deletedBy s
 		Where("unavailable_time_id = ?", id).
 		Updates(map[string]interface{}{
 			"deleted_by": deletedBy,
-		}).
-		Delete(&model.UnavailableTime{}).Error
+			"deleted_at": gorm.Expr("NOW()"),
+		}).Error
 }

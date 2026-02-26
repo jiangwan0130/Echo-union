@@ -18,6 +18,8 @@ type DepartmentRepository interface {
 	Update(ctx context.Context, dept *model.Department) error
 	Delete(ctx context.Context, id string, deletedBy string) error
 	CountMembers(ctx context.Context, departmentID string) (int64, error)
+	// BatchCountMembers 批量查询多个部门的成员数（单次 SQL，解决 N+1 问题）
+	BatchCountMembers(ctx context.Context, departmentIDs []string) (map[string]int64, error)
 }
 
 // departmentRepo DepartmentRepository 的 GORM 实现
@@ -96,4 +98,30 @@ func (r *departmentRepo) CountMembers(ctx context.Context, departmentID string) 
 	return count, err
 }
 
-// [自证通过] internal/repository/department_repo.go
+// BatchCountMembers 批量查询多个部门的成员数量，返回 departmentID -> count 的映射
+func (r *departmentRepo) BatchCountMembers(ctx context.Context, departmentIDs []string) (map[string]int64, error) {
+	if len(departmentIDs) == 0 {
+		return make(map[string]int64), nil
+	}
+
+	type result struct {
+		DepartmentID string
+		Count        int64
+	}
+	var results []result
+	err := r.db.WithContext(ctx).
+		Model(&model.User{}).
+		Select("department_id, COUNT(*) as count").
+		Where("department_id IN ? AND deleted_at IS NULL", departmentIDs).
+		Group("department_id").
+		Find(&results).Error
+	if err != nil {
+		return nil, err
+	}
+
+	countMap := make(map[string]int64, len(results))
+	for _, r := range results {
+		countMap[r.DepartmentID] = r.Count
+	}
+	return countMap, nil
+}

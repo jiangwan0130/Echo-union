@@ -25,13 +25,16 @@ func NewScheduleHandler(scheduleSvc service.ScheduleService) *ScheduleHandler {
 func (h *ScheduleHandler) AutoSchedule(c *gin.Context) {
 	var req dto.AutoScheduleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, 13001, "参数校验失败")
+		response.BadRequest(c, 10001, "参数校验失败")
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	result, err := h.scheduleSvc.AutoSchedule(c.Request.Context(), &req, callerID.(string))
+	result, err := h.scheduleSvc.AutoSchedule(c.Request.Context(), &req, callerID)
 	if err != nil {
 		h.handleScheduleError(c, err)
 		return
@@ -45,7 +48,7 @@ func (h *ScheduleHandler) AutoSchedule(c *gin.Context) {
 func (h *ScheduleHandler) GetSchedule(c *gin.Context) {
 	semesterID := c.Query("semester_id")
 	if semesterID == "" {
-		response.BadRequest(c, 13001, "semester_id不能为空")
+		response.BadRequest(c, 10001, "semester_id不能为空")
 		return
 	}
 
@@ -63,13 +66,16 @@ func (h *ScheduleHandler) GetSchedule(c *gin.Context) {
 func (h *ScheduleHandler) GetMySchedule(c *gin.Context) {
 	semesterID := c.Query("semester_id")
 	if semesterID == "" {
-		response.BadRequest(c, 13001, "semester_id不能为空")
+		response.BadRequest(c, 10001, "semester_id不能为空")
 		return
 	}
 
-	userID, _ := c.Get("user_id")
+	userID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	items, err := h.scheduleSvc.GetMySchedule(c.Request.Context(), semesterID, userID.(string))
+	items, err := h.scheduleSvc.GetMySchedule(c.Request.Context(), semesterID, userID)
 	if err != nil {
 		h.handleScheduleError(c, err)
 		return
@@ -83,19 +89,22 @@ func (h *ScheduleHandler) GetMySchedule(c *gin.Context) {
 func (h *ScheduleHandler) UpdateItem(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		response.BadRequest(c, 13001, "排班项ID不能为空")
+		response.BadRequest(c, 10001, "排班项ID不能为空")
 		return
 	}
 
 	var req dto.UpdateScheduleItemRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, 13001, "参数校验失败")
+		response.BadRequest(c, 10001, "参数校验失败")
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	item, err := h.scheduleSvc.UpdateItem(c.Request.Context(), id, &req, callerID.(string))
+	item, err := h.scheduleSvc.UpdateItem(c.Request.Context(), id, &req, callerID)
 	if err != nil {
 		h.handleScheduleError(c, err)
 		return
@@ -109,13 +118,13 @@ func (h *ScheduleHandler) UpdateItem(c *gin.Context) {
 func (h *ScheduleHandler) ValidateCandidate(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		response.BadRequest(c, 13001, "排班项ID不能为空")
+		response.BadRequest(c, 10001, "排班项ID不能为空")
 		return
 	}
 
 	var req dto.ValidateCandidateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, 13001, "参数校验失败")
+		response.BadRequest(c, 10001, "参数校验失败")
 		return
 	}
 
@@ -133,7 +142,7 @@ func (h *ScheduleHandler) ValidateCandidate(c *gin.Context) {
 func (h *ScheduleHandler) GetCandidates(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		response.BadRequest(c, 13001, "排班项ID不能为空")
+		response.BadRequest(c, 10001, "排班项ID不能为空")
 		return
 	}
 
@@ -151,13 +160,16 @@ func (h *ScheduleHandler) GetCandidates(c *gin.Context) {
 func (h *ScheduleHandler) Publish(c *gin.Context) {
 	var req dto.PublishScheduleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, 13001, "参数校验失败")
+		response.BadRequest(c, 10001, "参数校验失败")
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	schedule, err := h.scheduleSvc.Publish(c.Request.Context(), &req, callerID.(string))
+	schedule, err := h.scheduleSvc.Publish(c.Request.Context(), &req, callerID)
 	if err != nil {
 		h.handleScheduleError(c, err)
 		return
@@ -171,19 +183,22 @@ func (h *ScheduleHandler) Publish(c *gin.Context) {
 func (h *ScheduleHandler) UpdatePublishedItem(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		response.BadRequest(c, 13001, "排班项ID不能为空")
+		response.BadRequest(c, 10001, "排班项ID不能为空")
 		return
 	}
 
 	var req dto.UpdatePublishedItemRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, 13001, "参数校验失败")
+		response.BadRequest(c, 10001, "参数校验失败")
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	item, err := h.scheduleSvc.UpdatePublishedItem(c.Request.Context(), id, &req, callerID.(string))
+	item, err := h.scheduleSvc.UpdatePublishedItem(c.Request.Context(), id, &req, callerID)
 	if err != nil {
 		h.handleScheduleError(c, err)
 		return
@@ -197,7 +212,7 @@ func (h *ScheduleHandler) UpdatePublishedItem(c *gin.Context) {
 func (h *ScheduleHandler) ListChangeLogs(c *gin.Context) {
 	var req dto.ScheduleChangeLogListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		response.BadRequest(c, 13001, "参数校验失败")
+		response.BadRequest(c, 10001, "参数校验失败")
 		return
 	}
 
@@ -215,7 +230,7 @@ func (h *ScheduleHandler) ListChangeLogs(c *gin.Context) {
 func (h *ScheduleHandler) CheckScope(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
-		response.BadRequest(c, 13001, "排班表ID不能为空")
+		response.BadRequest(c, 10001, "排班表ID不能为空")
 		return
 	}
 

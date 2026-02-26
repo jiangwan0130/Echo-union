@@ -184,8 +184,28 @@ func (s *semesterService) Activate(ctx context.Context, id string, callerID stri
 		return err
 	}
 
+	// 使用事务保证 ClearActive + Update 的原子性
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		s.logger.Error("开启事务失败", zap.Error(err))
+		return err
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if tx != nil {
+				tx.Rollback()
+			}
+			panic(r)
+		}
+	}()
+
+	txRepo := s.repo.WithTx(tx)
+
 	// 先将所有学期置为非活动
-	if err := s.repo.Semester.ClearActive(ctx); err != nil {
+	if err := txRepo.Semester.ClearActive(ctx); err != nil {
+		if tx != nil {
+			tx.Rollback()
+		}
 		s.logger.Error("清除活动学期失败", zap.Error(err))
 		return err
 	}
@@ -194,9 +214,19 @@ func (s *semesterService) Activate(ctx context.Context, id string, callerID stri
 	semester.IsActive = true
 	semester.UpdatedBy = &callerID
 
-	if err := s.repo.Semester.Update(ctx, semester); err != nil {
+	if err := txRepo.Semester.Update(ctx, semester); err != nil {
+		if tx != nil {
+			tx.Rollback()
+		}
 		s.logger.Error("激活学期失败", zap.String("id", id), zap.Error(err))
 		return err
+	}
+
+	if tx != nil {
+		if err := tx.Commit().Error; err != nil {
+			s.logger.Error("提交事务失败", zap.Error(err))
+			return err
+		}
 	}
 
 	return nil

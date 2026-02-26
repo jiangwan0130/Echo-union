@@ -71,9 +71,12 @@ func (h *SemesterHandler) CreateSemester(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	semester, err := h.semesterSvc.Create(c.Request.Context(), &req, callerID.(string))
+	semester, err := h.semesterSvc.Create(c.Request.Context(), &req, callerID)
 	if err != nil {
 		h.handleSemesterError(c, err)
 		return
@@ -97,9 +100,12 @@ func (h *SemesterHandler) UpdateSemester(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	semester, err := h.semesterSvc.Update(c.Request.Context(), id, &req, callerID.(string))
+	semester, err := h.semesterSvc.Update(c.Request.Context(), id, &req, callerID)
 	if err != nil {
 		h.handleSemesterError(c, err)
 		return
@@ -117,9 +123,12 @@ func (h *SemesterHandler) ActivateSemester(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	if err := h.semesterSvc.Activate(c.Request.Context(), id, callerID.(string)); err != nil {
+	if err := h.semesterSvc.Activate(c.Request.Context(), id, callerID); err != nil {
 		h.handleSemesterError(c, err)
 		return
 	}
@@ -136,9 +145,12 @@ func (h *SemesterHandler) DeleteSemester(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	if err := h.semesterSvc.Delete(c.Request.Context(), id, callerID.(string)); err != nil {
+	if err := h.semesterSvc.Delete(c.Request.Context(), id, callerID); err != nil {
 		h.handleSemesterError(c, err)
 		return
 	}

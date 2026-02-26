@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/xuri/excelize/v2"
 
 	"echo-union/backend/internal/dto"
 	"echo-union/backend/internal/service"
@@ -25,13 +24,12 @@ func NewUserHandler(userSvc service.UserService) *UserHandler {
 // GetCurrentUser 获取当前用户信息
 // GET /api/v1/users/me
 func (h *UserHandler) GetCurrentUser(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		response.Unauthorized(c, 10002, "未认证")
+	userID, ok := MustGetUserID(c)
+	if !ok {
 		return
 	}
 
-	user, err := h.userSvc.GetByID(c.Request.Context(), userID.(string))
+	user, err := h.userSvc.GetByID(c.Request.Context(), userID)
 	if err != nil {
 		h.handleUserError(c, err)
 		return
@@ -67,14 +65,20 @@ func (h *UserHandler) ListUsers(c *gin.Context) {
 		return
 	}
 
-	callerRole, _ := c.Get("role")
-	callerDeptID, _ := c.Get("department_id")
+	callerRole, ok := MustGetRole(c)
+	if !ok {
+		return
+	}
+	callerDeptID, ok := MustGetDepartmentID(c)
+	if !ok {
+		return
+	}
 
 	users, total, err := h.userSvc.List(
 		c.Request.Context(),
 		&req,
-		callerRole.(string),
-		callerDeptID.(string),
+		callerRole,
+		callerDeptID,
 	)
 	if err != nil {
 		response.InternalError(c)
@@ -99,10 +103,16 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
-	callerRole, _ := c.Get("role")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
+	callerRole, ok := MustGetRole(c)
+	if !ok {
+		return
+	}
 
-	user, err := h.userSvc.Update(c.Request.Context(), id, &req, callerID.(string), callerRole.(string))
+	user, err := h.userSvc.Update(c.Request.Context(), id, &req, callerID, callerRole)
 	if err != nil {
 		h.handleUserError(c, err)
 		return
@@ -120,9 +130,12 @@ func (h *UserHandler) DeleteUser(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	if err := h.userSvc.Delete(c.Request.Context(), id, callerID.(string)); err != nil {
+	if err := h.userSvc.Delete(c.Request.Context(), id, callerID); err != nil {
 		h.handleUserError(c, err)
 		return
 	}
@@ -145,9 +158,12 @@ func (h *UserHandler) AssignRole(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	if err := h.userSvc.AssignRole(c.Request.Context(), id, &req, callerID.(string)); err != nil {
+	if err := h.userSvc.AssignRole(c.Request.Context(), id, &req, callerID); err != nil {
 		h.handleUserError(c, err)
 		return
 	}
@@ -164,9 +180,12 @@ func (h *UserHandler) ResetPassword(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	result, err := h.userSvc.ResetPassword(c.Request.Context(), id, callerID.(string))
+	result, err := h.userSvc.ResetPassword(c.Request.Context(), id, callerID)
 	if err != nil {
 		h.handleUserError(c, err)
 		return
@@ -203,55 +222,11 @@ func (h *UserHandler) ImportUsers(c *gin.Context) {
 	}
 	defer src.Close()
 
-	f, err := excelize.OpenReader(src)
+	// 委托 Service 层解析 Excel
+	rows, err := h.userSvc.ParseImportFile(src)
 	if err != nil {
-		response.BadRequest(c, 10001, "无法解析Excel文件")
+		response.BadRequest(c, 10001, err.Error())
 		return
-	}
-	defer f.Close()
-
-	// 读取第一个工作表
-	sheetName := f.GetSheetName(0)
-	excelRows, err := f.GetRows(sheetName)
-	if err != nil {
-		response.BadRequest(c, 10001, "读取工作表失败")
-		return
-	}
-
-	if len(excelRows) < 2 {
-		response.BadRequest(c, 10001, "Excel文件无数据行（第一行为表头）")
-		return
-	}
-
-	// 解析表头（支持灵活列序）
-	header := excelRows[0]
-	colIndex := parseHeaderIndex(header)
-
-	if colIndex["name"] < 0 || colIndex["student_id"] < 0 || colIndex["email"] < 0 || colIndex["department"] < 0 {
-		response.BadRequest(c, 10001, "Excel表头缺少必要列（姓名/学号/邮箱/部门）")
-		return
-	}
-
-	// 解析数据行
-	var rows []service.ImportUserRow
-	for i := 1; i < len(excelRows); i++ {
-		row := excelRows[i]
-		item := service.ImportUserRow{Row: i + 1} // Excel行号从1开始，+1因为表头
-
-		if idx := colIndex["name"]; idx < len(row) {
-			item.Name = strings.TrimSpace(row[idx])
-		}
-		if idx := colIndex["student_id"]; idx < len(row) {
-			item.StudentID = strings.TrimSpace(row[idx])
-		}
-		if idx := colIndex["email"]; idx < len(row) {
-			item.Email = strings.TrimSpace(row[idx])
-		}
-		if idx := colIndex["department"]; idx < len(row) {
-			item.DepartmentName = strings.TrimSpace(row[idx])
-		}
-
-		rows = append(rows, item)
 	}
 
 	result, err := h.userSvc.ImportUsers(c.Request.Context(), rows)
@@ -283,31 +258,4 @@ func (h *UserHandler) handleUserError(c *gin.Context, err error) {
 	default:
 		response.InternalError(c)
 	}
-}
-
-// parseHeaderIndex 解析 Excel 表头，返回列名 -> 列索引映射
-// 支持的列名：姓名/name、学号/student_id、邮箱/email、部门/department
-func parseHeaderIndex(header []string) map[string]int {
-	idx := map[string]int{
-		"name":       -1,
-		"student_id": -1,
-		"email":      -1,
-		"department": -1,
-	}
-
-	for i, h := range header {
-		lower := strings.ToLower(strings.TrimSpace(h))
-		switch {
-		case lower == "姓名" || lower == "name":
-			idx["name"] = i
-		case lower == "学号" || lower == "student_id":
-			idx["student_id"] = i
-		case lower == "邮箱" || lower == "email":
-			idx["email"] = i
-		case lower == "部门" || lower == "department":
-			idx["department"] = i
-		}
-	}
-
-	return idx
 }

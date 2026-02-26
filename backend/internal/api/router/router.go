@@ -146,7 +146,7 @@ func Setup(cfg *config.Config, h *handler.Handler, jwtMgr *jwt.Manager, rdb *red
 				schedules.POST("/publish", middleware.RoleAuth("admin"), h.Schedule.Publish)
 				schedules.PUT("/published/items/:id", middleware.RoleAuth("admin"), h.Schedule.UpdatePublishedItem)
 				schedules.GET("/change-logs", middleware.RoleAuth("admin"), h.Schedule.ListChangeLogs)
-				schedules.GET("/:id/scope-check", middleware.RoleAuth("admin"), h.Schedule.CheckScope)
+				schedules.POST("/:id/scope-check", middleware.RoleAuth("admin"), h.Schedule.CheckScope)
 			}
 
 			// 导出模块（一期：排班表导出；签到统计导出归入二期）

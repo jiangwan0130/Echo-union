@@ -473,20 +473,22 @@ CREATE TABLE unavailable_times (
     version             INT           NOT NULL DEFAULT 1,
 
     CONSTRAINT ck_unavailable_times_repeat_type
-        CHECK (repeat_type IN ('once', 'weekly')),
+        CHECK (repeat_type IN ('once', 'weekly', 'biweekly')),
     CONSTRAINT ck_unavailable_times_week_type
         CHECK (week_type IN ('all', 'odd', 'even')),
     CONSTRAINT ck_unavailable_times_day_of_week
         CHECK (day_of_week BETWEEN 1 AND 7),
     CONSTRAINT ck_unavailable_times_times
         CHECK (end_time > start_time),
-    -- 单次必须指定日期，每周重复不应指定日期
+    -- 单次必须指定日期，每周/双周重复不应指定日期
     CONSTRAINT ck_unavailable_times_specific_date
         CHECK ((repeat_type = 'once' AND specific_date IS NOT NULL)
-            OR (repeat_type = 'weekly' AND specific_date IS NULL)),
-    -- 单次事件无需区分单双周
+            OR (repeat_type IN ('weekly', 'biweekly') AND specific_date IS NULL)),
+    -- 单次事件无需区分单双周，双周必须指定 odd/even
     CONSTRAINT ck_unavailable_times_once_week_type
-        CHECK (repeat_type = 'weekly' OR week_type = 'all'),
+        CHECK (repeat_type = 'weekly' OR repeat_type = 'biweekly' OR week_type = 'all'),
+    CONSTRAINT ck_unavailable_times_biweekly_week_type
+        CHECK (repeat_type != 'biweekly' OR week_type IN ('odd', 'even')),
     CONSTRAINT ck_unavailable_times_soft_delete
         CHECK ((deleted_at IS NULL AND deleted_by IS NULL)
             OR (deleted_at IS NOT NULL AND deleted_by IS NOT NULL)),
@@ -545,6 +547,10 @@ CREATE TABLE schedules (
 
 CREATE INDEX idx_schedules_semester_id
     ON schedules (semester_id) WHERE deleted_at IS NULL;
+
+-- 同一学期只允许一个活跃排班表（非归档状态唯一约束）
+CREATE UNIQUE INDEX uk_schedules_active_per_semester
+    ON schedules (semester_id) WHERE status IN ('draft', 'published', 'need_regen') AND deleted_at IS NULL;
 
 -- ============================================================
 -- 14. schedule_member_snapshots（排班成员快照表）

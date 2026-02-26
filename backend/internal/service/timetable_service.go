@@ -75,8 +75,8 @@ func NewTimetableService(repo *repository.Repository, logger *zap.Logger) Timeta
 //
 // 流程：
 //   1. 解析 ICS 内容为 courses 列表
-//   2. 开启事务：删除旧课表 → 批量插入新课表
-//   3. 回退 timetable_status 为 not_submitted（确保排班前课表已确认最新）
+//   2. 开启事务：删除旧课表 → 批量插入新课表 → 回退提交状态
+//   3. 构建响应
 
 func (s *timetableService) ImportICS(ctx context.Context, reader io.Reader, userID string, semesterID string) (*dto.ImportICSResponse, error) {
 	// 1. 确认学期
@@ -95,16 +95,38 @@ func (s *timetableService) ImportICS(ctx context.Context, reader io.Reader, user
 		return nil, ErrTimetableICSEmpty
 	}
 
-	// 3. 事务：删除旧数据 + 插入新数据（事务封装在 Repository 层）
-	if err := s.repo.CourseSchedule.ReplaceByUserAndSemester(ctx, userID, semester.SemesterID, courses); err != nil {
-		s.logger.Error("课表导入事务失败", zap.Error(err))
+	// 3. 事务：删除旧数据 + 插入新数据 + 回退提交状态（原子操作）
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("开启事务失败: %w", err)
+	}
+	defer func() {
+		if tx != nil {
+			tx.Rollback()
+		}
+	}()
+	txRepo := s.repo.WithTx(tx)
+
+	if err := txRepo.CourseSchedule.DeleteByUserAndSemester(ctx, userID, semester.SemesterID); err != nil {
+		s.logger.Error("删除旧课表失败", zap.Error(err))
 		return nil, fmt.Errorf("课表导入失败: %w", err)
 	}
+	if len(courses) > 0 {
+		if err := txRepo.CourseSchedule.BatchCreate(ctx, courses); err != nil {
+			s.logger.Error("插入新课表失败", zap.Error(err))
+			return nil, fmt.Errorf("课表导入失败: %w", err)
+		}
+	}
+	s.rollbackTimetableStatusTx(ctx, txRepo, userID, semester.SemesterID)
 
-	// 4. 回退提交状态（非事务也可接受：即使失败，课表已更新，用户可手动重新提交）
-	s.rollbackTimetableStatus(ctx, userID, semester.SemesterID)
+	if tx != nil {
+		if err := tx.Commit().Error; err != nil {
+			s.logger.Error("课表导入事务提交失败", zap.Error(err))
+			return nil, fmt.Errorf("课表导入失败: %w", err)
+		}
+	}
 
-	// 5. 构建响应
+	// 4. 构建响应
 	events := make([]dto.ImportedCourseEvent, 0, len(courses))
 	for _, c := range courses {
 		events = append(events, dto.ImportedCourseEvent{
@@ -171,6 +193,11 @@ func (s *timetableService) CreateUnavailableTime(ctx context.Context, req *dto.C
 		return nil, err
 	}
 
+	// 业务规则校验（repeat_type 与 week_type/specific_date 联动约束）
+	if err := req.Validate(); err != nil {
+		return nil, err
+	}
+
 	ut := model.UnavailableTime{
 		UserID:     userID,
 		SemesterID: semester.SemesterID,
@@ -188,13 +215,29 @@ func (s *timetableService) CreateUnavailableTime(ctx context.Context, req *dto.C
 		}
 	}
 
-	if err := s.repo.UnavailableTime.Create(ctx, &ut); err != nil {
+	// 事务：创建不可用时间 + 回退提交状态
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("开启事务失败: %w", err)
+	}
+	defer func() {
+		if tx != nil {
+			tx.Rollback()
+		}
+	}()
+	txRepo := s.repo.WithTx(tx)
+
+	if err := txRepo.UnavailableTime.Create(ctx, &ut); err != nil {
 		s.logger.Error("创建不可用时间失败", zap.Error(err))
 		return nil, err
 	}
+	s.rollbackTimetableStatusTx(ctx, txRepo, userID, semester.SemesterID)
 
-	// 回退提交状态
-	s.rollbackTimetableStatus(ctx, userID, semester.SemesterID)
+	if tx != nil {
+		if err := tx.Commit().Error; err != nil {
+			return nil, err
+		}
+	}
 
 	resp := toUnavailableResponse(ut)
 	return &resp, nil
@@ -239,13 +282,29 @@ func (s *timetableService) UpdateUnavailableTime(ctx context.Context, id string,
 	}
 	ut.UpdatedBy = &userID
 
-	if err := s.repo.UnavailableTime.Update(ctx, ut); err != nil {
+	// 事务：更新不可用时间 + 回退提交状态
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("开启事务失败: %w", err)
+	}
+	defer func() {
+		if tx != nil {
+			tx.Rollback()
+		}
+	}()
+	txRepo := s.repo.WithTx(tx)
+
+	if err := txRepo.UnavailableTime.Update(ctx, ut); err != nil {
 		s.logger.Error("更新不可用时间失败", zap.Error(err))
 		return nil, err
 	}
+	s.rollbackTimetableStatusTx(ctx, txRepo, userID, ut.SemesterID)
 
-	// 回退提交状态
-	s.rollbackTimetableStatus(ctx, userID, ut.SemesterID)
+	if tx != nil {
+		if err := tx.Commit().Error; err != nil {
+			return nil, err
+		}
+	}
 
 	resp := toUnavailableResponse(*ut)
 	return &resp, nil
@@ -263,13 +322,29 @@ func (s *timetableService) DeleteUnavailableTime(ctx context.Context, id string,
 		return ErrTimetableUnavailableNotOwner
 	}
 
-	if err := s.repo.UnavailableTime.Delete(ctx, id, userID); err != nil {
+	// 事务：删除不可用时间 + 回退提交状态
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		return fmt.Errorf("开启事务失败: %w", err)
+	}
+	defer func() {
+		if tx != nil {
+			tx.Rollback()
+		}
+	}()
+	txRepo := s.repo.WithTx(tx)
+
+	if err := txRepo.UnavailableTime.Delete(ctx, id, userID); err != nil {
 		s.logger.Error("删除不可用时间失败", zap.Error(err))
 		return err
 	}
+	s.rollbackTimetableStatusTx(ctx, txRepo, userID, ut.SemesterID)
 
-	// 回退提交状态
-	s.rollbackTimetableStatus(ctx, userID, ut.SemesterID)
+	if tx != nil {
+		if err := tx.Commit().Error; err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -411,8 +486,8 @@ func (s *timetableService) GetDepartmentProgress(ctx context.Context, department
 		return nil, err
 	}
 
-	// 获取该部门需要值班的成员
-	assignments, err := s.repo.UserSemesterAssignment.ListDutyRequiredBySemester(ctx, semester.SemesterID)
+	// 获取该部门需要值班的成员（SQL 层按部门过滤，避免全量加载）
+	assignments, err := s.repo.UserSemesterAssignment.ListDutyRequiredByDepartmentAndSemester(ctx, departmentID, semester.SemesterID)
 	if err != nil {
 		return nil, err
 	}
@@ -420,7 +495,7 @@ func (s *timetableService) GetDepartmentProgress(ctx context.Context, department
 	var members []dto.DepartmentMemberStatus
 	total, submitted := 0, 0
 	for _, a := range assignments {
-		if a.User == nil || a.User.DepartmentID != departmentID {
+		if a.User == nil {
 			continue
 		}
 		total++
@@ -475,19 +550,24 @@ func (s *timetableService) resolveActiveSemester(ctx context.Context, semesterID
 	return sem, nil
 }
 
-// rollbackTimetableStatus 回退提交状态为 not_submitted
-func (s *timetableService) rollbackTimetableStatus(ctx context.Context, userID, semesterID string) {
-	assignment, err := s.repo.UserSemesterAssignment.GetByUserAndSemester(ctx, userID, semesterID)
+// rollbackTimetableStatusTx 在指定 repo（可为事务 repo）上回退提交状态为 not_submitted
+func (s *timetableService) rollbackTimetableStatusTx(ctx context.Context, repo *repository.Repository, userID, semesterID string) {
+	assignment, err := repo.UserSemesterAssignment.GetByUserAndSemester(ctx, userID, semesterID)
 	if err != nil {
 		return // 无分配记录时静默跳过
 	}
 	if assignment.TimetableStatus == "submitted" {
-		if err := s.repo.UserSemesterAssignment.UpdateTimetableStatus(
+		if err := repo.UserSemesterAssignment.UpdateTimetableStatus(
 			ctx, assignment.AssignmentID, "not_submitted", nil, userID,
 		); err != nil {
 			s.logger.Warn("回退提交状态失败", zap.Error(err), zap.String("userID", userID))
 		}
 	}
+}
+
+// rollbackTimetableStatus 非事务版本，向后兼容
+func (s *timetableService) rollbackTimetableStatus(ctx context.Context, userID, semesterID string) {
+	s.rollbackTimetableStatusTx(ctx, s.repo, userID, semesterID)
 }
 
 // ── 响应转换器 ──

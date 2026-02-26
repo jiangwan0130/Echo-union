@@ -26,6 +26,8 @@ type UserRepository interface {
 	List(ctx context.Context, offset, limit int) ([]model.User, int64, error)
 	ListWithFilters(ctx context.Context, filters *UserListFilters, offset, limit int) ([]model.User, int64, error)
 	BatchCreate(ctx context.Context, users []*model.User) (int, error)
+	// ListByIDs 批量按 ID 查询用户（含 Department 预加载）
+	ListByIDs(ctx context.Context, ids []string) ([]model.User, error)
 }
 
 // userRepo UserRepository 的 GORM 实现
@@ -135,6 +137,18 @@ func (r *userRepo) BatchCreate(ctx context.Context, users []*model.User) (int, e
 	}
 	result := r.db.WithContext(ctx).Create(users)
 	return int(result.RowsAffected), result.Error
+}
+
+func (r *userRepo) ListByIDs(ctx context.Context, ids []string) ([]model.User, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var users []model.User
+	err := r.db.WithContext(ctx).
+		Preload("Department").
+		Where("user_id IN ?", ids).
+		Find(&users).Error
+	return users, err
 }
 
 // [自证通过] internal/repository/user_repo.go

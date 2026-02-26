@@ -81,19 +81,11 @@ func (s *scheduleService) AutoSchedule(ctx context.Context, req *dto.AutoSchedul
 		return nil, err
 	}
 
-	// 0.1 检查是否已有非归档排班表 → 如有则先归档
+	// 0.1 检查是否已有非归档排班表 → 如有则在写入阶段归档
 	existing, err := s.repo.Schedule.GetBySemester(ctx, semesterID)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		s.logger.Error("查询已有排班表失败", zap.Error(err))
 		return nil, err
-	}
-	if existing != nil {
-		existing.Status = "archived"
-		existing.UpdatedBy = &callerID
-		if err := s.repo.Schedule.Update(ctx, existing); err != nil {
-			s.logger.Error("归档旧排班表失败", zap.Error(err))
-			return nil, err
-		}
 	}
 
 	// ── 阶段1: 数据准备 ──
@@ -377,7 +369,31 @@ func (s *scheduleService) AutoSchedule(ctx context.Context, req *dto.AutoSchedul
 		slotDeptWeek[fmt.Sprintf("%d:%s", sl.weekNumber, sl.timeSlot.TimeSlotID)] = chosen.departmentID
 	}
 
-	// ── 阶段4: 输出 ──
+	// ── 阶段4: 输出（事务写入，保证原子性）──
+
+	// 开启事务
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		s.logger.Error("开启事务失败", zap.Error(err))
+		return nil, err
+	}
+	rollbackTx := func() {
+		if tx != nil {
+			tx.Rollback()
+		}
+	}
+	txRepo := s.repo.WithTx(tx)
+
+	// 归档旧排班表（在事务内，避免并发创建多个活跃排班）
+	if existing != nil {
+		existing.Status = "archived"
+		existing.UpdatedBy = &callerID
+		if err := txRepo.Schedule.Update(ctx, existing); err != nil {
+			rollbackTx()
+			s.logger.Error("归档旧排班表失败", zap.Error(err))
+			return nil, err
+		}
+	}
 
 	// 创建排班表
 	schedule := &model.Schedule{
@@ -387,7 +403,8 @@ func (s *scheduleService) AutoSchedule(ctx context.Context, req *dto.AutoSchedul
 	schedule.CreatedBy = &callerID
 	schedule.UpdatedBy = &callerID
 
-	if err := s.repo.Schedule.Create(ctx, schedule); err != nil {
+	if err := txRepo.Schedule.Create(ctx, schedule); err != nil {
+		rollbackTx()
 		s.logger.Error("创建排班表失败", zap.Error(err))
 		return nil, err
 	}
@@ -407,7 +424,8 @@ func (s *scheduleService) AutoSchedule(ctx context.Context, req *dto.AutoSchedul
 	}
 
 	if len(items) > 0 {
-		if err := s.repo.ScheduleItem.BatchCreate(ctx, items); err != nil {
+		if err := txRepo.ScheduleItem.BatchCreate(ctx, items); err != nil {
+			rollbackTx()
 			s.logger.Error("批量创建排班项失败", zap.Error(err))
 			return nil, err
 		}
@@ -426,8 +444,17 @@ func (s *scheduleService) AutoSchedule(ctx context.Context, req *dto.AutoSchedul
 		})
 	}
 	if len(snapshots) > 0 {
-		if err := s.repo.ScheduleMemberSnapshot.BatchCreate(ctx, snapshots); err != nil {
+		if err := txRepo.ScheduleMemberSnapshot.BatchCreate(ctx, snapshots); err != nil {
+			rollbackTx()
 			s.logger.Error("保存成员快照失败", zap.Error(err))
+			return nil, err
+		}
+	}
+
+	// 提交事务
+	if tx != nil {
+		if err := tx.Commit().Error; err != nil {
+			s.logger.Error("提交事务失败", zap.Error(err))
 			return nil, err
 		}
 	}
@@ -670,7 +697,19 @@ func (s *scheduleService) UpdatePublishedItem(ctx context.Context, itemID string
 		return nil, ErrCandidateNotAvailable
 	}
 
-	// 记录变更日志
+	// 记录变更日志 + 更新排班项（事务保证原子性）
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		s.logger.Error("开启事务失败", zap.Error(err))
+		return nil, err
+	}
+	rollbackTx := func() {
+		if tx != nil {
+			tx.Rollback()
+		}
+	}
+	txRepo := s.repo.WithTx(tx)
+
 	changeLog := &model.ScheduleChangeLog{
 		ScheduleID:       schedule.ScheduleID,
 		ScheduleItemID:   item.ScheduleItemID,
@@ -681,7 +720,8 @@ func (s *scheduleService) UpdatePublishedItem(ctx context.Context, itemID string
 		OperatorID:       callerID,
 		CreatedAt:        time.Now(),
 	}
-	if err := s.repo.ScheduleChangeLog.Create(ctx, changeLog); err != nil {
+	if err := txRepo.ScheduleChangeLog.Create(ctx, changeLog); err != nil {
+		rollbackTx()
 		s.logger.Error("创建变更日志失败", zap.Error(err))
 		return nil, err
 	}
@@ -689,9 +729,17 @@ func (s *scheduleService) UpdatePublishedItem(ctx context.Context, itemID string
 	// 更新排班项
 	item.MemberID = req.MemberID
 	item.UpdatedBy = &callerID
-	if err := s.repo.ScheduleItem.Update(ctx, item); err != nil {
+	if err := txRepo.ScheduleItem.Update(ctx, item); err != nil {
+		rollbackTx()
 		s.logger.Error("更新排班项失败", zap.Error(err))
 		return nil, err
+	}
+
+	if tx != nil {
+		if err := tx.Commit().Error; err != nil {
+			s.logger.Error("提交事务失败", zap.Error(err))
+			return nil, err
+		}
 	}
 
 	updated, err := s.repo.ScheduleItem.GetByID(ctx, itemID)

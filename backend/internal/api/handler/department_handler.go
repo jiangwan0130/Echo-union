@@ -65,9 +65,12 @@ func (h *DepartmentHandler) CreateDepartment(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	dept, err := h.deptSvc.Create(c.Request.Context(), &req, callerID.(string))
+	dept, err := h.deptSvc.Create(c.Request.Context(), &req, callerID)
 	if err != nil {
 		h.handleDepartmentError(c, err)
 		return
@@ -91,9 +94,12 @@ func (h *DepartmentHandler) UpdateDepartment(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	dept, err := h.deptSvc.Update(c.Request.Context(), id, &req, callerID.(string))
+	dept, err := h.deptSvc.Update(c.Request.Context(), id, &req, callerID)
 	if err != nil {
 		h.handleDepartmentError(c, err)
 		return
@@ -111,9 +117,12 @@ func (h *DepartmentHandler) DeleteDepartment(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	if err := h.deptSvc.Delete(c.Request.Context(), id, callerID.(string)); err != nil {
+	if err := h.deptSvc.Delete(c.Request.Context(), id, callerID); err != nil {
 		h.handleDepartmentError(c, err)
 		return
 	}
@@ -156,9 +165,12 @@ func (h *DepartmentHandler) SetDutyMembers(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	result, err := h.deptSvc.SetDutyMembers(c.Request.Context(), id, &req, callerID.(string))
+	result, err := h.deptSvc.SetDutyMembers(c.Request.Context(), id, &req, callerID)
 	if err != nil {
 		h.handleDepartmentError(c, err)
 		return
@@ -171,19 +183,19 @@ func (h *DepartmentHandler) SetDutyMembers(c *gin.Context) {
 func (h *DepartmentHandler) handleDepartmentError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrDepartmentNotFound):
-		response.NotFound(c, 13001, "部门不存在")
+		response.NotFound(c, 14001, "部门不存在")
 	case errors.Is(err, service.ErrDepartmentNameExists):
-		response.BadRequest(c, 13002, "部门名称已存在")
+		response.BadRequest(c, 14002, "部门名称已存在")
 	case errors.Is(err, service.ErrDepartmentHasMembers):
-		response.BadRequest(c, 13003, "部门下存在成员，无法删除")
+		response.BadRequest(c, 14003, "部门下存在成员，无法删除")
 	case errors.Is(err, service.ErrDepartmentInactive):
-		response.BadRequest(c, 13004, "部门已停用")
+		response.BadRequest(c, 14004, "部门已停用")
 	case errors.Is(err, service.ErrDutyMemberNotInDepartment):
-		response.BadRequest(c, 13005, "指定用户不属于该部门")
+		response.BadRequest(c, 14005, "指定用户不属于该部门")
 	case errors.Is(err, service.ErrUserNotFound):
-		response.NotFound(c, 13006, "指定用户不存在")
+		response.NotFound(c, 14006, "指定用户不存在")
 	case errors.Is(err, service.ErrSemesterNotFound):
-		response.NotFound(c, 13007, "学期不存在")
+		response.NotFound(c, 14007, "学期不存在")
 	default:
 		response.InternalError(c)
 	}

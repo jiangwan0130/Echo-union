@@ -117,14 +117,42 @@ func (s *authService) Login(ctx context.Context, req *dto.LoginRequest) (*dto.To
 // ────────────────────── Register ──────────────────────
 
 func (s *authService) Register(ctx context.Context, req *dto.RegisterRequest) (*dto.RegisterResponse, error) {
-	// 1. 密码强度校验
+	// 1. 密码强度校验（无需事务）
 	if !validatePassword(req.Password) {
 		return nil, ErrWeakPassword
 	}
 
-	// 2. 验证邀请码
-	invite, err := s.repo.InviteCode.GetByCode(ctx, req.InviteCode)
+	// 2. 哈希密码（CPU 密集，放在事务外减少持锁时间）
+	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
+		s.logger.Error("密码哈希失败", zap.Error(err))
+		return nil, err
+	}
+
+	// 3. 开启事务，保证邀请码校验→用户创建→邀请码标记的原子性
+	var user *model.User
+	tx, err := s.repo.BeginTx(ctx)
+	if err != nil {
+		s.logger.Error("开启事务失败", zap.Error(err))
+		return nil, err
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if tx != nil {
+				tx.Rollback()
+			}
+			panic(r)
+		}
+	}()
+
+	txRepo := s.repo.WithTx(tx)
+
+	// 3a. SELECT ... FOR UPDATE 锁定邀请码行，防并发重复使用
+	invite, err := txRepo.InviteCode.GetByCodeForUpdate(ctx, req.InviteCode)
+	if err != nil {
+		if tx != nil {
+			tx.Rollback()
+		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrInviteCodeInvalid
 		}
@@ -132,59 +160,83 @@ func (s *authService) Register(ctx context.Context, req *dto.RegisterRequest) (*
 		return nil, err
 	}
 	if invite.UsedAt != nil || invite.ExpiresAt.Before(time.Now()) {
+		if tx != nil {
+			tx.Rollback()
+		}
 		return nil, ErrInviteCodeInvalid
 	}
 
-	// 3. 检查学号唯一性
-	if _, err := s.repo.User.GetByStudentID(ctx, req.StudentID); err == nil {
+	// 3b. 检查学号唯一性
+	if _, err := txRepo.User.GetByStudentID(ctx, req.StudentID); err == nil {
+		if tx != nil {
+			tx.Rollback()
+		}
 		return nil, ErrStudentIDExists
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		if tx != nil {
+			tx.Rollback()
+		}
 		s.logger.Error("检查学号唯一性失败", zap.Error(err))
 		return nil, err
 	}
 
-	// 4. 检查邮箱唯一性
-	if _, err := s.repo.User.GetByEmail(ctx, req.Email); err == nil {
+	// 3c. 检查邮箱唯一性
+	if _, err := txRepo.User.GetByEmail(ctx, req.Email); err == nil {
+		if tx != nil {
+			tx.Rollback()
+		}
 		return nil, ErrEmailExists
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		if tx != nil {
+			tx.Rollback()
+		}
 		s.logger.Error("检查邮箱唯一性失败", zap.Error(err))
 		return nil, err
 	}
 
-	// 5. 验证部门存在
-	if _, err := s.repo.Department.GetByID(ctx, req.DepartmentID); err != nil {
+	// 3d. 验证部门存在
+	if _, err := txRepo.Department.GetByID(ctx, req.DepartmentID); err != nil {
+		if tx != nil {
+			tx.Rollback()
+		}
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("部门不存在")
 		}
 		return nil, err
 	}
 
-	// 6. 哈希密码
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		s.logger.Error("密码哈希失败", zap.Error(err))
-		return nil, err
-	}
-
-	// 7. 创建用户
-	user := &model.User{
+	// 3e. 创建用户
+	user = &model.User{
 		Name:         req.Name,
 		StudentID:    req.StudentID,
 		Email:        req.Email,
 		PasswordHash: string(hash),
-		Role:         "member", // 新注册用户默认为普通成员
+		Role:         "member",
 		DepartmentID: req.DepartmentID,
 	}
-
-	if err := s.repo.User.Create(ctx, user); err != nil {
+	if err := txRepo.User.Create(ctx, user); err != nil {
+		if tx != nil {
+			tx.Rollback()
+		}
 		s.logger.Error("创建用户失败", zap.Error(err))
 		return nil, err
 	}
 
-	// 8. 标记邀请码已使用
-	if err := s.repo.InviteCode.MarkUsed(ctx, invite.InviteCodeID, user.UserID); err != nil {
+	// 3f. 标记邀请码已使用
+	if err := txRepo.InviteCode.MarkUsed(ctx, invite.InviteCodeID, user.UserID); err != nil {
+		if tx != nil {
+			tx.Rollback()
+		}
 		s.logger.Error("标记邀请码已使用失败", zap.Error(err))
-		// 用户已创建成功，邀请码标记失败不回滚用户（幂等安全）
+		return nil, err
+	}
+
+	// 4. 提交事务
+	if tx != nil {
+		if err := tx.Commit().Error; err != nil {
+			s.logger.Error("提交事务失败", zap.Error(err))
+			return nil, err
+		}
 	}
 
 	return &dto.RegisterResponse{

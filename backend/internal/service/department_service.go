@@ -104,9 +104,28 @@ func (s *departmentService) List(ctx context.Context, req *dto.DepartmentListReq
 		return nil, err
 	}
 
+	// 批量查询成员数，避免 N+1 查询问题
+	deptIDs := make([]string, 0, len(depts))
+	for _, d := range depts {
+		deptIDs = append(deptIDs, d.DepartmentID)
+	}
+	countMap, err := s.repo.Department.BatchCountMembers(ctx, deptIDs)
+	if err != nil {
+		s.logger.Warn("批量查询成员数失败，回退为0", zap.Error(err))
+		countMap = make(map[string]int64)
+	}
+
 	result := make([]dto.DepartmentDetailResponse, 0, len(depts))
 	for i := range depts {
-		result = append(result, *s.toDepartmentDetailResponse(ctx, &depts[i]))
+		result = append(result, dto.DepartmentDetailResponse{
+			ID:          depts[i].DepartmentID,
+			Name:        depts[i].Name,
+			Description: depts[i].Description,
+			IsActive:    depts[i].IsActive,
+			MemberCount: countMap[depts[i].DepartmentID],
+			CreatedAt:   depts[i].CreatedAt.Format("2006-01-02T15:04:05Z"),
+			UpdatedAt:   depts[i].UpdatedAt.Format("2006-01-02T15:04:05Z"),
+		})
 	}
 
 	return result, nil
@@ -286,14 +305,20 @@ func (s *departmentService) SetDutyMembers(ctx context.Context, departmentID str
 		return nil, err
 	}
 
-	// 3. 校验所有 user_ids 属于该部门
+	// 3. 批量校验所有 user_ids 属于该部门
+	users, err := s.repo.User.ListByIDs(ctx, req.UserIDs)
+	if err != nil {
+		s.logger.Error("批量查询用户失败", zap.Error(err))
+		return nil, err
+	}
+	userMap := make(map[string]*model.User, len(users))
+	for i := range users {
+		userMap[users[i].UserID] = &users[i]
+	}
 	for _, uid := range req.UserIDs {
-		user, err := s.repo.User.GetByID(ctx, uid)
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, ErrUserNotFound
-			}
-			return nil, err
+		user, ok := userMap[uid]
+		if !ok {
+			return nil, ErrUserNotFound
 		}
 		if user.DepartmentID != departmentID {
 			return nil, ErrDutyMemberNotInDepartment

@@ -136,6 +136,16 @@ func (m *mockUserRepo) BatchCreate(_ context.Context, users []*model.User) (int,
 	return len(users), nil
 }
 
+func (m *mockUserRepo) ListByIDs(_ context.Context, ids []string) ([]model.User, error) {
+	var result []model.User
+	for _, id := range ids {
+		if u, ok := m.users[id]; ok {
+			result = append(result, *u)
+		}
+	}
+	return result, nil
+}
+
 // contains 简单字符串包含检查（用于 mock 关键词搜索）
 func contains(s, sub string) bool {
 	return len(sub) > 0 && len(s) >= len(sub) && (s == sub || findSubstring(s, sub))
@@ -213,6 +223,16 @@ func (m *mockDeptRepo) CountMembers(_ context.Context, departmentID string) (int
 	return 0, nil
 }
 
+func (m *mockDeptRepo) BatchCountMembers(_ context.Context, departmentIDs []string) (map[string]int64, error) {
+	result := make(map[string]int64, len(departmentIDs))
+	for _, id := range departmentIDs {
+		if count, ok := m.memberCounts[id]; ok {
+			result[id] = count
+		}
+	}
+	return result, nil
+}
+
 type mockInviteCodeRepo struct {
 	codes map[string]*model.InviteCode
 }
@@ -234,6 +254,11 @@ func (m *mockInviteCodeRepo) GetByCode(_ context.Context, code string) (*model.I
 		return c, nil
 	}
 	return nil, gorm.ErrRecordNotFound
+}
+
+func (m *mockInviteCodeRepo) GetByCodeForUpdate(_ context.Context, code string) (*model.InviteCode, error) {
+	// 在 mock 中与 GetByCode 行为一致
+	return m.GetByCode(nil, code)
 }
 
 func (m *mockInviteCodeRepo) MarkUsed(_ context.Context, inviteCodeID, userID string) error {

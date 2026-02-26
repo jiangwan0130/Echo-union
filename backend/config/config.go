@@ -33,13 +33,15 @@ type CORSConfig struct {
 
 // DatabaseConfig PostgreSQL 数据库配置
 type DatabaseConfig struct {
-	Host     string `mapstructure:"host"`
-	Port     int    `mapstructure:"port"`
-	Name     string `mapstructure:"name"`
-	User     string `mapstructure:"user"`
-	Password string `mapstructure:"password"`
-	SSLMode  string `mapstructure:"sslmode"`
-	Timezone string `mapstructure:"timezone"`
+	Host         string `mapstructure:"host"`
+	Port         int    `mapstructure:"port"`
+	Name         string `mapstructure:"name"`
+	User         string `mapstructure:"user"`
+	Password     string `mapstructure:"password"`
+	SSLMode      string `mapstructure:"sslmode"`
+	Timezone     string `mapstructure:"timezone"`
+	MaxOpenConns int    `mapstructure:"max_open_conns"`
+	MaxIdleConns int    `mapstructure:"max_idle_conns"`
 }
 
 // DSN 生成 PostgreSQL 连接字符串
@@ -110,6 +112,8 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("db.password", "")
 	v.SetDefault("db.sslmode", "disable")
 	v.SetDefault("db.timezone", "Asia/Shanghai")
+	v.SetDefault("db.max_open_conns", 25)
+	v.SetDefault("db.max_idle_conns", 10)
 
 	v.SetDefault("redis.addr", "localhost:6379")
 	v.SetDefault("redis.password", "")

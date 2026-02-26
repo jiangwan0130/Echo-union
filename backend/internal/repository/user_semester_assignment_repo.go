@@ -23,6 +23,8 @@ type UserSemesterAssignmentRepository interface {
 	UpdateDutyRequired(ctx context.Context, assignmentID string, dutyRequired bool, updatedBy string) error
 	// ListDutyRequiredBySemester 列出指定学期需要值班的分配记录（含 User + Department）
 	ListDutyRequiredBySemester(ctx context.Context, semesterID string) ([]model.UserSemesterAssignment, error)
+	// ListDutyRequiredByDepartmentAndSemester 列出指定部门和学期需要值班的分配记录（SQL 层过滤，避免全量加载）
+	ListDutyRequiredByDepartmentAndSemester(ctx context.Context, departmentID, semesterID string) ([]model.UserSemesterAssignment, error)
 }
 
 type userSemesterAssignmentRepo struct {
@@ -110,28 +112,27 @@ func (r *userSemesterAssignmentRepo) Create(ctx context.Context, assignment *mod
 }
 
 func (r *userSemesterAssignmentRepo) BatchUpsert(ctx context.Context, semesterID string, userIDs []string, dutyRequired bool, callerID string) error {
+	if len(userIDs) == 0 {
+		return nil
+	}
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, uid := range userIDs {
-			var existing model.UserSemesterAssignment
-			err := tx.Where("user_id = ? AND semester_id = ? AND deleted_at IS NULL", uid, semesterID).First(&existing).Error
-			if err == nil {
-				// 已存在 → 更新 duty_required
-				tx.Model(&existing).Updates(map[string]interface{}{
+			// 使用 ON CONFLICT 实现 upsert：存在则更新 duty_required，不存在则创建
+			a := model.UserSemesterAssignment{
+				UserID:       uid,
+				SemesterID:   semesterID,
+				DutyRequired: dutyRequired,
+			}
+			a.CreatedBy = &callerID
+			a.UpdatedBy = &callerID
+
+			if err := tx.Where("user_id = ? AND semester_id = ? AND deleted_at IS NULL", uid, semesterID).
+				Assign(map[string]interface{}{
 					"duty_required": dutyRequired,
 					"updated_by":    callerID,
-				})
-			} else {
-				// 不存在 → 创建
-				a := model.UserSemesterAssignment{
-					UserID:       uid,
-					SemesterID:   semesterID,
-					DutyRequired: dutyRequired,
-				}
-				a.CreatedBy = &callerID
-				a.UpdatedBy = &callerID
-				if err := tx.Create(&a).Error; err != nil {
-					return err
-				}
+				}).
+				FirstOrCreate(&a).Error; err != nil {
+				return err
 			}
 		}
 		return nil
@@ -153,6 +154,17 @@ func (r *userSemesterAssignmentRepo) ListDutyRequiredBySemester(ctx context.Cont
 	err := r.db.WithContext(ctx).
 		Preload("User").Preload("User.Department").
 		Where("semester_id = ? AND duty_required = ?", semesterID, true).
+		Find(&assignments).Error
+	return assignments, err
+}
+
+func (r *userSemesterAssignmentRepo) ListDutyRequiredByDepartmentAndSemester(ctx context.Context, departmentID, semesterID string) ([]model.UserSemesterAssignment, error) {
+	var assignments []model.UserSemesterAssignment
+	err := r.db.WithContext(ctx).
+		Preload("User").Preload("User.Department").
+		Joins("JOIN users ON users.user_id = user_semester_assignments.user_id AND users.deleted_at IS NULL").
+		Where("user_semester_assignments.semester_id = ? AND user_semester_assignments.duty_required = ? AND users.department_id = ? AND user_semester_assignments.deleted_at IS NULL",
+			semesterID, true, departmentID).
 		Find(&assignments).Error
 	return assignments, err
 }

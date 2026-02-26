@@ -229,12 +229,15 @@ user/
 │   ├── UpdateUser()    # 更新用户信息
 │   ├── DeleteUser()    # 删除用户
 │   ├── AssignRole()    # 分配角色
-│   ├── ImportUsers()   # 批量导入
+│   ├── ImportUsers()   # 批量导入（handler 仅负责文件验证，解析逻辑委派给 Service 层）
 │   ├── ChangePassword()# 修改密码
 │   └── ResetPassword() # 重置密码
 ├── service.go          # 业务逻辑
+│   └── ParseImportFile()  # 解析导入 Excel 文件（返回 []ImportUserRow）
 └── repository.go       # 数据访问
 ```
+
+> **实现说明：** Excel 导入的文件解析逻辑已移至 Service 层的 `ParseImportFile(reader io.Reader) ([]ImportUserRow, error)` 方法。Handler 层仅负责文件类型验证和大小限制，然后将文件流传入 Service 层处理。
 
 #### 2.2.3 角色分配规则
 
@@ -393,9 +396,24 @@ timetable/
 | start_time | TIME | 开始时间 |
 | end_time | TIME | 结束时间 |
 | reason | VARCHAR | 原因（可选） |
-| repeat_type | ENUM | 单次/每周重复 |
+| repeat_type | ENUM | 单次/每周重复/双周重复 |
 | specific_date | DATE | 特定日期（单次时使用） |
 | week_type | ENUM | 单周/双周/每周 |
+
+**约束规则（对应 DB CHECK 约束）：**
+- `repeat_type` 允许值: `once` / `weekly` / `biweekly`
+- `once` 类型必须指定 `specific_date`，`week_type` 必须为 `all`
+- `weekly` 类型不允许 `specific_date`
+- `biweekly` 类型不允许 `specific_date`，`week_type` 必须为 `odd` 或 `even`
+
+**DTO 校验方法 `CreateUnavailableTimeRequest.Validate()`：**
+```go
+switch repeat_type {
+case "once":  // specific_date 必填，week_type 必须为 all
+case "weekly": // specific_date 禁填
+case "biweekly": // specific_date 禁填，week_type 必须为 odd/even
+}
+```
 
 #### 2.4.5 提交状态管理
 
@@ -1211,7 +1229,7 @@ export/
 │    └── <UnavailableFormModal>       # 不可用时间表单弹窗                         │
 │          ├── 时间选择                                                           │
 │          ├── 原因输入                                                           │
-│          └── 重复设置（单次/每周）                                              │
+│          └── 重复设置（单次/每周/双周）                                              │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -1353,9 +1371,18 @@ export/
 
 ---
 
+## 六、基础设施实现备注
+
+### 6.1 数据库连接池
+
+数据库连接池参数 `MaxOpenConns` 与 `MaxIdleConns` 已改为从配置文件读取（`config.yaml` 中的 `database.max_open_conns` 和 `database.max_idle_conns`），而非硬编码。`pkg/database/db.go` 在初始化时读取配置并设置连接池参数，未配置时使用合理默认值。
+
+---
+
 ## 版本历史
 
 | 版本 | 日期 | 修改内容 | 修改人 |
 |------|------|----------|--------|
 | v1.0 | 2026-01-29 | 初稿 | 系统架构师 |
+| v1.1 | 2026-02-26 | 同步代码实现进度：<br>1. 不可用时间新增 `biweekly`（双周）repeat_type 及其约束<br>2. 补充 `CreateUnavailableTimeRequest.Validate()` 方法说明<br>3. 数据库连接池参数已改为从配置文件读取<br>4. Excel 导入解析逻辑已移至 Service 层 | 文档同步助手 |
 

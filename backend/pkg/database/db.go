@@ -27,9 +27,17 @@ func NewDB(cfg *config.DatabaseConfig, logger *zap.Logger) (*gorm.DB, error) {
 		return nil, fmt.Errorf("获取底层 sql.DB 失败: %w", err)
 	}
 
-	// 连接池配置
-	sqlDB.SetMaxOpenConns(25)
-	sqlDB.SetMaxIdleConns(10)
+	// 连接池配置（从配置文件读取，已有默认值 25/10）
+	maxOpen := cfg.MaxOpenConns
+	if maxOpen <= 0 {
+		maxOpen = 25
+	}
+	maxIdle := cfg.MaxIdleConns
+	if maxIdle <= 0 {
+		maxIdle = 10
+	}
+	sqlDB.SetMaxOpenConns(maxOpen)
+	sqlDB.SetMaxIdleConns(maxIdle)
 
 	if err := sqlDB.Ping(); err != nil {
 		return nil, fmt.Errorf("数据库 ping 失败: %w", err)

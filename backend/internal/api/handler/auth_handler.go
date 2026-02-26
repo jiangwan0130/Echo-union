@@ -101,13 +101,16 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 // POST /api/v1/auth/invite
 
 func (h *AuthHandler) GenerateInvite(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
 	var req dto.GenerateInviteRequest
 	// 允许空 body（使用默认 7 天）
 	_ = c.ShouldBindJSON(&req)
 
-	result, err := h.authSvc.GenerateInvite(c.Request.Context(), userID.(string), req.ExpiresDays)
+	result, err := h.authSvc.GenerateInvite(c.Request.Context(), userID, req.ExpiresDays)
 	if err != nil {
 		response.InternalError(c)
 		return

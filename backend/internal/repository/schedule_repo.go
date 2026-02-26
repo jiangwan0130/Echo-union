@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"echo-union/backend/internal/model"
+	pkgerrors "echo-union/backend/pkg/errors"
 )
 
 // ScheduleRepository 排班表数据访问接口
@@ -94,7 +95,25 @@ func (r *scheduleRepo) GetLatestBySemester(ctx context.Context, semesterID strin
 }
 
 func (r *scheduleRepo) Update(ctx context.Context, schedule *model.Schedule) error {
-	return r.db.WithContext(ctx).Save(schedule).Error
+	oldVersion := schedule.Version
+	result := r.db.WithContext(ctx).
+		Model(schedule).
+		Where("schedule_id = ? AND version = ?", schedule.ScheduleID, oldVersion).
+		Updates(map[string]interface{}{
+			"semester_id":  schedule.SemesterID,
+			"status":       schedule.Status,
+			"published_at": schedule.PublishedAt,
+			"updated_by":   schedule.UpdatedBy,
+			"version":      oldVersion + 1,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return pkgerrors.ErrOptimisticLock
+	}
+	schedule.Version = oldVersion + 1
+	return nil
 }
 
 func (r *scheduleRepo) Delete(ctx context.Context, id string) error {
@@ -159,7 +178,26 @@ func (r *scheduleItemRepo) ListByScheduleAndMember(ctx context.Context, schedule
 }
 
 func (r *scheduleItemRepo) Update(ctx context.Context, item *model.ScheduleItem) error {
-	return r.db.WithContext(ctx).Save(item).Error
+	oldVersion := item.Version
+	result := r.db.WithContext(ctx).
+		Model(item).
+		Where("schedule_item_id = ? AND version = ?", item.ScheduleItemID, oldVersion).
+		Updates(map[string]interface{}{
+			"week_number":  item.WeekNumber,
+			"time_slot_id": item.TimeSlotID,
+			"member_id":    item.MemberID,
+			"location_id":  item.LocationID,
+			"updated_by":   item.UpdatedBy,
+			"version":      oldVersion + 1,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return pkgerrors.ErrOptimisticLock
+	}
+	item.Version = oldVersion + 1
+	return nil
 }
 
 func (r *scheduleItemRepo) DeleteBySchedule(ctx context.Context, scheduleID string) error {

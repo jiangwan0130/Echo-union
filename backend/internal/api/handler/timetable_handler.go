@@ -28,7 +28,14 @@ func NewTimetableHandler(svc service.TimetableService) *TimetableHandler {
 //   - 文件上传: multipart/form-data, field="file"
 //   - URL 导入: application/json, body={"url": "..."}
 func (h *TimetableHandler) ImportICS(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
+
+	// 限制请求体大小为 5MB，防止大文件上传导致 OOM
+	const maxUploadSize = 5 << 20 // 5MB
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
 
 	// 获取可选的 semester_id
 	semesterID := c.PostForm("semester_id")
@@ -37,7 +44,7 @@ func (h *TimetableHandler) ImportICS(c *gin.Context) {
 	file, _, err := c.Request.FormFile("file")
 	if err == nil {
 		defer file.Close()
-		resp, err := h.svc.ImportICS(c.Request.Context(), file, userID.(string), semesterID)
+		resp, err := h.svc.ImportICS(c.Request.Context(), file, userID, semesterID)
 		if err != nil {
 			handleTimetableError(c, err)
 			return
@@ -76,7 +83,7 @@ func (h *TimetableHandler) ImportICS(c *gin.Context) {
 	}
 	defer body.Close()
 
-	resp, err := h.svc.ImportICS(c.Request.Context(), body, userID.(string), semesterID)
+	resp, err := h.svc.ImportICS(c.Request.Context(), body, userID, semesterID)
 	if err != nil {
 		handleTimetableError(c, err)
 		return
@@ -87,10 +94,13 @@ func (h *TimetableHandler) ImportICS(c *gin.Context) {
 // GetMyTimetable 获取我的时间表
 // GET /api/v1/timetables/me
 func (h *TimetableHandler) GetMyTimetable(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 	semesterID := c.Query("semester_id")
 
-	resp, err := h.svc.GetMyTimetable(c.Request.Context(), userID.(string), semesterID)
+	resp, err := h.svc.GetMyTimetable(c.Request.Context(), userID, semesterID)
 	if err != nil {
 		handleTimetableError(c, err)
 		return
@@ -101,7 +111,10 @@ func (h *TimetableHandler) GetMyTimetable(c *gin.Context) {
 // CreateUnavailableTime 添加不可用时间
 // POST /api/v1/timetables/unavailable
 func (h *TimetableHandler) CreateUnavailableTime(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
 	var req dto.CreateUnavailableTimeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -109,7 +122,7 @@ func (h *TimetableHandler) CreateUnavailableTime(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.svc.CreateUnavailableTime(c.Request.Context(), &req, userID.(string))
+	resp, err := h.svc.CreateUnavailableTime(c.Request.Context(), &req, userID)
 	if err != nil {
 		handleTimetableError(c, err)
 		return
@@ -120,7 +133,10 @@ func (h *TimetableHandler) CreateUnavailableTime(c *gin.Context) {
 // UpdateUnavailableTime 更新不可用时间
 // PUT /api/v1/timetables/unavailable/:id
 func (h *TimetableHandler) UpdateUnavailableTime(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 	id := c.Param("id")
 
 	var req dto.UpdateUnavailableTimeRequest
@@ -129,7 +145,7 @@ func (h *TimetableHandler) UpdateUnavailableTime(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.svc.UpdateUnavailableTime(c.Request.Context(), id, &req, userID.(string))
+	resp, err := h.svc.UpdateUnavailableTime(c.Request.Context(), id, &req, userID)
 	if err != nil {
 		handleTimetableError(c, err)
 		return
@@ -140,10 +156,13 @@ func (h *TimetableHandler) UpdateUnavailableTime(c *gin.Context) {
 // DeleteUnavailableTime 删除不可用时间
 // DELETE /api/v1/timetables/unavailable/:id
 func (h *TimetableHandler) DeleteUnavailableTime(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 	id := c.Param("id")
 
-	err := h.svc.DeleteUnavailableTime(c.Request.Context(), id, userID.(string))
+	err := h.svc.DeleteUnavailableTime(c.Request.Context(), id, userID)
 	if err != nil {
 		handleTimetableError(c, err)
 		return
@@ -154,13 +173,16 @@ func (h *TimetableHandler) DeleteUnavailableTime(c *gin.Context) {
 // SubmitTimetable 提交时间表
 // POST /api/v1/timetables/submit
 func (h *TimetableHandler) SubmitTimetable(c *gin.Context) {
-	userID, _ := c.Get("user_id")
+	userID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
 	var req dto.SubmitTimetableRequest
 	// body 可为空，semester_id 可选
 	_ = c.ShouldBindJSON(&req)
 
-	resp, err := h.svc.SubmitTimetable(c.Request.Context(), userID.(string), req.SemesterID)
+	resp, err := h.svc.SubmitTimetable(c.Request.Context(), userID, req.SemesterID)
 	if err != nil {
 		handleTimetableError(c, err)
 		return

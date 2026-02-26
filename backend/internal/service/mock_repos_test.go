@@ -433,6 +433,16 @@ func (m *mockUserSemesterAssignmentRepo) ListDutyRequiredBySemester(_ context.Co
 	return result, nil
 }
 
+func (m *mockUserSemesterAssignmentRepo) ListDutyRequiredByDepartmentAndSemester(_ context.Context, departmentID, semesterID string) ([]model.UserSemesterAssignment, error) {
+	var result []model.UserSemesterAssignment
+	for _, a := range m.assignments {
+		if a.SemesterID == semesterID && a.DutyRequired && a.User != nil && a.User.DepartmentID == departmentID {
+			result = append(result, a)
+		}
+	}
+	return result, nil
+}
+
 func (m *mockUserSemesterAssignmentRepo) Create(_ context.Context, assignment *model.UserSemesterAssignment) error {
 	if assignment.AssignmentID == "" {
 		assignment.AssignmentID = fmt.Sprintf("assign-%d", len(m.assignments)+1)

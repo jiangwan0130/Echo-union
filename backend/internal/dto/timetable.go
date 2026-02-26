@@ -1,6 +1,9 @@
 package dto
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
 // ── ICS 导入 ──
 
@@ -34,9 +37,38 @@ type CreateUnavailableTimeRequest struct {
 	EndTime      string  `json:"end_time" binding:"required"`
 	Reason       string  `json:"reason" binding:"omitempty,max=200"`
 	RepeatType   string  `json:"repeat_type" binding:"omitempty,oneof=weekly biweekly once"`
-	SpecificDate *string `json:"specific_date" binding:"omitempty"` // YYYY-MM-DD
+	SpecificDate *string `json:"specific_date" binding:"omitempty"` // YYYY-MM-DD，仅 once 类型必填
 	WeekType     string  `json:"week_type" binding:"omitempty,oneof=all odd even"`
 	SemesterID   string  `json:"semester_id" binding:"omitempty,uuid"`
+}
+
+// Validate 校验业务规则（repeat_type 与 week_type/specific_date 的联动约束）
+func (r *CreateUnavailableTimeRequest) Validate() error {
+	rt := r.RepeatType
+	if rt == "" {
+		rt = "weekly" // 默认值
+	}
+	switch rt {
+	case "once":
+		if r.SpecificDate == nil || *r.SpecificDate == "" {
+			return fmt.Errorf("单次类型必须指定 specific_date")
+		}
+		if r.WeekType != "" && r.WeekType != "all" {
+			return fmt.Errorf("单次类型的 week_type 必须为 all")
+		}
+	case "weekly":
+		if r.SpecificDate != nil && *r.SpecificDate != "" {
+			return fmt.Errorf("每周重复类型不应指定 specific_date")
+		}
+	case "biweekly":
+		if r.SpecificDate != nil && *r.SpecificDate != "" {
+			return fmt.Errorf("双周重复类型不应指定 specific_date")
+		}
+		if r.WeekType != "odd" && r.WeekType != "even" {
+			return fmt.Errorf("双周重复类型的 week_type 必须为 odd 或 even")
+		}
+	}
+	return nil
 }
 
 // UpdateUnavailableTimeRequest 更新不可用时间请求

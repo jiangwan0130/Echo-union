@@ -5,8 +5,11 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
+	"strings"
 
+	"github.com/xuri/excelize/v2"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
@@ -33,6 +36,7 @@ type UserService interface {
 	Delete(ctx context.Context, id string, callerID string) error
 	AssignRole(ctx context.Context, id string, req *dto.AssignRoleRequest, callerID string) error
 	ResetPassword(ctx context.Context, id string, callerID string) (*dto.ResetPasswordResponse, error)
+	ParseImportFile(reader io.Reader) ([]ImportUserRow, error)
 	ImportUsers(ctx context.Context, rows []ImportUserRow) (*dto.ImportUserResponse, error)
 }
 
@@ -247,6 +251,100 @@ func (s *userService) ResetPassword(ctx context.Context, id string, callerID str
 	}
 
 	return &dto.ResetPasswordResponse{TempPassword: tempPassword}, nil
+}
+
+// ────────────────────── ParseImportFile ──────────────────────
+
+const maxImportRows = 1000
+
+var (
+	ErrImportNoData      = errors.New("Excel文件无数据行（第一行为表头）")
+	ErrImportTooManyRows = fmt.Errorf("数据行数超过上限 %d 行", maxImportRows)
+	ErrImportBadHeader   = errors.New("Excel表头缺少必要列（姓名/学号/邮箱/部门）")
+)
+
+// ParseImportFile 解析导入 Excel 文件，返回解析后的行数据
+func (s *userService) ParseImportFile(reader io.Reader) ([]ImportUserRow, error) {
+	f, err := excelize.OpenReader(reader)
+	if err != nil {
+		return nil, fmt.Errorf("无法解析Excel文件: %w", err)
+	}
+	defer f.Close()
+
+	sheetName := f.GetSheetName(0)
+	excelRows, err := f.GetRows(sheetName)
+	if err != nil {
+		return nil, fmt.Errorf("读取工作表失败: %w", err)
+	}
+
+	if len(excelRows) < 2 {
+		return nil, ErrImportNoData
+	}
+
+	// 解析表头（支持灵活列序）
+	colIndex := parseHeaderIndex(excelRows[0])
+	if colIndex["name"] < 0 || colIndex["student_id"] < 0 || colIndex["email"] < 0 || colIndex["department"] < 0 {
+		return nil, ErrImportBadHeader
+	}
+
+	var rows []ImportUserRow
+	for i := 1; i < len(excelRows); i++ {
+		row := excelRows[i]
+		item := ImportUserRow{Row: i + 1}
+
+		if idx := colIndex["name"]; idx < len(row) {
+			item.Name = strings.TrimSpace(row[idx])
+		}
+		if idx := colIndex["student_id"]; idx < len(row) {
+			item.StudentID = strings.TrimSpace(row[idx])
+		}
+		if idx := colIndex["email"]; idx < len(row) {
+			item.Email = strings.TrimSpace(row[idx])
+		}
+		if idx := colIndex["department"]; idx < len(row) {
+			item.DepartmentName = strings.TrimSpace(row[idx])
+		}
+
+		// 跳过全空行
+		if item.Name == "" && item.StudentID == "" && item.Email == "" && item.DepartmentName == "" {
+			continue
+		}
+
+		rows = append(rows, item)
+	}
+
+	if len(rows) == 0 {
+		return nil, ErrImportNoData
+	}
+	if len(rows) > maxImportRows {
+		return nil, ErrImportTooManyRows
+	}
+
+	return rows, nil
+}
+
+// parseHeaderIndex 解析 Excel 表头，返回列名 -> 列索引映射
+func parseHeaderIndex(header []string) map[string]int {
+	idx := map[string]int{
+		"name":       -1,
+		"student_id": -1,
+		"email":      -1,
+		"department": -1,
+	}
+	for i, h := range header {
+		lower := strings.ToLower(strings.TrimSpace(h))
+		switch {
+		case lower == "姓名" || lower == "name":
+			idx["name"] = i
+		case lower == "学号" || lower == "student_id":
+			idx["student_id"] = i
+		case lower == "邮箱" || lower == "email":
+			idx["email"] = i
+		case lower == "部门" || lower == "department":
+			idx["department"] = i
+		}
+	}
+	return idx
 }
 
 // ────────────────────── ImportUsers ──────────────────────

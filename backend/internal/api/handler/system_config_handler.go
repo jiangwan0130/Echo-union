@@ -41,9 +41,12 @@ func (h *SystemConfigHandler) UpdateConfig(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	cfg, err := h.configSvc.Update(c.Request.Context(), &req, callerID.(string))
+	cfg, err := h.configSvc.Update(c.Request.Context(), &req, callerID)
 	if err != nil {
 		h.handleConfigError(c, err)
 		return

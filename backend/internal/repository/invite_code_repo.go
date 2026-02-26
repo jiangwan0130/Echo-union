@@ -13,6 +13,8 @@ import (
 type InviteCodeRepository interface {
 	Create(ctx context.Context, code *model.InviteCode) error
 	GetByCode(ctx context.Context, code string) (*model.InviteCode, error)
+	// GetByCodeForUpdate 使用 SELECT ... FOR UPDATE 行级锁查询邀请码，防止并发使用
+	GetByCodeForUpdate(ctx context.Context, code string) (*model.InviteCode, error)
 	MarkUsed(ctx context.Context, inviteCodeID, userID string) error
 }
 
@@ -33,6 +35,20 @@ func (r *inviteCodeRepo) Create(ctx context.Context, code *model.InviteCode) err
 func (r *inviteCodeRepo) GetByCode(ctx context.Context, code string) (*model.InviteCode, error) {
 	var invite model.InviteCode
 	err := r.db.WithContext(ctx).
+		Where("code = ?", code).
+		First(&invite).Error
+	if err != nil {
+		return nil, err
+	}
+	return &invite, nil
+}
+
+// GetByCodeForUpdate 使用 SELECT ... FOR UPDATE 行级锁查询邀请码
+// 必须在已有事务的 *gorm.DB 上调用（通过 Repository.WithTx 注入事务连接）
+func (r *inviteCodeRepo) GetByCodeForUpdate(ctx context.Context, code string) (*model.InviteCode, error) {
+	var invite model.InviteCode
+	err := r.db.WithContext(ctx).
+		Set("gorm:query_option", "FOR UPDATE").
 		Where("code = ?", code).
 		First(&invite).Error
 	if err != nil {

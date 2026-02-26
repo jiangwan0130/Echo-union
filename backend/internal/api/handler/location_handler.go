@@ -65,9 +65,12 @@ func (h *LocationHandler) CreateLocation(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	location, err := h.locationSvc.Create(c.Request.Context(), &req, callerID.(string))
+	location, err := h.locationSvc.Create(c.Request.Context(), &req, callerID)
 	if err != nil {
 		h.handleLocationError(c, err)
 		return
@@ -91,9 +94,12 @@ func (h *LocationHandler) UpdateLocation(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	location, err := h.locationSvc.Update(c.Request.Context(), id, &req, callerID.(string))
+	location, err := h.locationSvc.Update(c.Request.Context(), id, &req, callerID)
 	if err != nil {
 		h.handleLocationError(c, err)
 		return
@@ -111,9 +117,12 @@ func (h *LocationHandler) DeleteLocation(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	if err := h.locationSvc.Delete(c.Request.Context(), id, callerID.(string)); err != nil {
+	if err := h.locationSvc.Delete(c.Request.Context(), id, callerID); err != nil {
 		h.handleLocationError(c, err)
 		return
 	}

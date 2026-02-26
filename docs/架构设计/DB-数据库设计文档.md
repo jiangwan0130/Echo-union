@@ -544,7 +544,7 @@
 | start_time | TIME | NOT NULL | | 开始时间 |
 | end_time | TIME | NOT NULL | | 结束时间 |
 | reason | VARCHAR(200) | | | 原因 |
-| repeat_type | VARCHAR(20) | NOT NULL | 'weekly' | 重复类型：once/weekly |
+| repeat_type | VARCHAR(20) | NOT NULL | 'weekly' | 重复类型：once/weekly/biweekly |
 | specific_date | DATE | | NULL | 特定日期（单次时使用） |
 | week_type | VARCHAR(10) | NOT NULL | 'all' | 周类型：all/odd/even |
 | created_at | TIMESTAMPTZ | NOT NULL | CURRENT_TIMESTAMP | 创建时间 |
@@ -556,16 +556,17 @@
 | version | INT | NOT NULL | 1 | 乐观锁版本号 |
 
 **字段枚举值：**
-- `repeat_type`: once(单次), weekly(每周重复)
+- `repeat_type`: once(单次), weekly(每周重复), biweekly(双周重复)
 - `week_type`: all(每周), odd(单周), even(双周)
 
 **CHECK约束：**
-- `repeat_type IN ('once', 'weekly')`
+- `repeat_type IN ('once', 'weekly', 'biweekly')`
 - `week_type IN ('all', 'odd', 'even')`
 - `day_of_week BETWEEN 1 AND 7`
 - `end_time > start_time`
-- `(repeat_type = 'once' AND specific_date IS NOT NULL) OR (repeat_type = 'weekly' AND specific_date IS NULL)` —— 单次必须指定日期，每周重复不应指定日期
-- `repeat_type = 'weekly' OR week_type = 'all'` —— 单次事件无需区分单双周
+- `(repeat_type = 'once' AND specific_date IS NOT NULL) OR (repeat_type IN ('weekly', 'biweekly') AND specific_date IS NULL)` —— 单次必须指定日期，每周/双周重复不应指定日期
+- `repeat_type = 'weekly' OR repeat_type = 'biweekly' OR week_type = 'all'` —— 单次事件无需区分单双周
+- `repeat_type != 'biweekly' OR week_type IN ('odd', 'even')` —— 双周重复时 week_type 必须为 odd 或 even
 - `(deleted_at IS NULL AND deleted_by IS NULL) OR (deleted_at IS NOT NULL AND deleted_by IS NOT NULL)` —— 软删除一致性
 
 **外键：**
@@ -1164,6 +1165,7 @@
 |----|------|
 | once | 单次 |
 | weekly | 每周重复 |
+| biweekly | 双周重复 |
 
 #### 变更类型 (schedule_change_logs.change_type)
 

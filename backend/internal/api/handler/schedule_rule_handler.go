@@ -65,9 +65,12 @@ func (h *ScheduleRuleHandler) UpdateRule(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	rule, err := h.ruleSvc.Update(c.Request.Context(), id, &req, callerID.(string))
+	rule, err := h.ruleSvc.Update(c.Request.Context(), id, &req, callerID)
 	if err != nil {
 		h.handleRuleError(c, err)
 		return
