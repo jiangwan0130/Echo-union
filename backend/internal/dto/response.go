@@ -34,23 +34,25 @@ type RegisterResponse struct {
 
 // UserResponse 用户信息响应（脱敏）
 type UserResponse struct {
-	ID         string              `json:"id"`
-	Name       string              `json:"name"`
-	Email      string              `json:"email"`
-	StudentID  string              `json:"student_id"`
-	Role       string              `json:"role"`
-	Department *DepartmentResponse `json:"department,omitempty"`
+	ID                 string              `json:"id"`
+	Name               string              `json:"name"`
+	Email              string              `json:"email"`
+	StudentID          string              `json:"student_id"`
+	Role               string              `json:"role"`
+	Department         *DepartmentResponse `json:"department,omitempty"`
+	MustChangePassword bool                `json:"must_change_password"`
 }
 
 // UserDetailResponse 用户详细信息（GET /auth/me）
 type UserDetailResponse struct {
-	ID         string              `json:"id"`
-	Name       string              `json:"name"`
-	Email      string              `json:"email"`
-	StudentID  string              `json:"student_id"`
-	Role       string              `json:"role"`
-	Department *DepartmentResponse `json:"department,omitempty"`
-	CreatedAt  string              `json:"created_at"`
+	ID                 string              `json:"id"`
+	Name               string              `json:"name"`
+	Email              string              `json:"email"`
+	StudentID          string              `json:"student_id"`
+	Role               string              `json:"role"`
+	Department         *DepartmentResponse `json:"department,omitempty"`
+	MustChangePassword bool                `json:"must_change_password"`
+	CreatedAt          string              `json:"created_at"`
 }
 
 // DepartmentResponse 部门简要信息

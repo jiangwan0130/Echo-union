@@ -191,7 +191,9 @@ Authorization: Bearer <access_token>
 
 ---
 
-### 3.2 邀请注册
+### 3.2 邀请注册 【已废弃】
+
+> **废弃说明：** 邀请链接注册已废弃，改为管理员批量导入（学号+默认密码）。前端已移除注册页面和相关 API 调用。
 
 **接口路径**: `POST /api/v1/auth/register`
 
@@ -266,7 +268,9 @@ Authorization: Bearer <access_token>
 
 ---
 
-### 3.4 验证邀请码
+### 3.4 验证邀请码 【已废弃】
+
+> **废弃说明：** 邀请链接注册已废弃，该接口不再使用。
 
 **接口路径**: `GET /api/v1/auth/invite/:code`
 
@@ -353,7 +357,9 @@ Authorization: Bearer <access_token>
 
 ---
 
-### 3.8 生成邀请链接
+### 3.8 生成邀请链接 【已废弃】
+
+> **废弃说明：** 邀请链接注册已废弃，该接口不再使用。前端已移除相关功能。
 
 **接口路径**: `POST /api/v1/auth/invite`
 

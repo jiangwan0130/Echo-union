@@ -440,13 +440,14 @@ func (s *authService) GetCurrentUser(ctx context.Context, userID string) (*dto.U
 	}
 
 	return &dto.UserDetailResponse{
-		ID:         user.UserID,
-		Name:       user.Name,
-		Email:      user.Email,
-		StudentID:  user.StudentID,
-		Role:       user.Role,
-		Department: dept,
-		CreatedAt:  user.CreatedAt.Format(time.RFC3339),
+		ID:                 user.UserID,
+		Name:               user.Name,
+		Email:              user.Email,
+		StudentID:          user.StudentID,
+		Role:               user.Role,
+		Department:         dept,
+		MustChangePassword: user.MustChangePassword,
+		CreatedAt:          user.CreatedAt.Format(time.RFC3339),
 	}, nil
 }
 
@@ -479,12 +480,13 @@ func (s *authService) generateTokenPair(user *model.User, rememberMe bool) (*dto
 		RefreshToken: refreshToken,
 		ExpiresIn:    int(s.cfg.Auth.AccessTokenTTL.Seconds()),
 		User: dto.UserResponse{
-			ID:         user.UserID,
-			Name:       user.Name,
-			Email:      user.Email,
-			StudentID:  user.StudentID,
-			Role:       user.Role,
-			Department: dept,
+			ID:                 user.UserID,
+			Name:               user.Name,
+			Email:              user.Email,
+			StudentID:          user.StudentID,
+			Role:               user.Role,
+			Department:         dept,
+			MustChangePassword: user.MustChangePassword,
 		},
 	}, nil
 }
