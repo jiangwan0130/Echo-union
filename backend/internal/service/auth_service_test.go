@@ -233,49 +233,9 @@ func (m *mockDeptRepo) BatchCountMembers(_ context.Context, departmentIDs []stri
 	return result, nil
 }
 
-type mockInviteCodeRepo struct {
-	codes map[string]*model.InviteCode
-}
-
-func newMockInviteCodeRepo() *mockInviteCodeRepo {
-	return &mockInviteCodeRepo{codes: make(map[string]*model.InviteCode)}
-}
-
-func (m *mockInviteCodeRepo) Create(_ context.Context, code *model.InviteCode) error {
-	if code.InviteCodeID == "" {
-		code.InviteCodeID = "invite-" + code.Code
-	}
-	m.codes[code.Code] = code
-	return nil
-}
-
-func (m *mockInviteCodeRepo) GetByCode(_ context.Context, code string) (*model.InviteCode, error) {
-	if c, ok := m.codes[code]; ok {
-		return c, nil
-	}
-	return nil, gorm.ErrRecordNotFound
-}
-
-func (m *mockInviteCodeRepo) GetByCodeForUpdate(_ context.Context, code string) (*model.InviteCode, error) {
-	// 在 mock 中与 GetByCode 行为一致
-	return m.GetByCode(nil, code)
-}
-
-func (m *mockInviteCodeRepo) MarkUsed(_ context.Context, inviteCodeID, userID string) error {
-	for _, c := range m.codes {
-		if c.InviteCodeID == inviteCodeID {
-			now := time.Now()
-			c.UsedAt = &now
-			c.UsedBy = &userID
-			return nil
-		}
-	}
-	return gorm.ErrRecordNotFound
-}
-
 // ── 测试辅助 ──
 
-func setupTestAuthService() (AuthService, *mockUserRepo, *mockInviteCodeRepo) {
+func setupTestAuthService() (AuthService, *mockUserRepo) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			BaseURL: "http://localhost:8080",
@@ -289,12 +249,10 @@ func setupTestAuthService() (AuthService, *mockUserRepo, *mockInviteCodeRepo) {
 	}
 
 	userRepo := newMockUserRepo()
-	inviteRepo := newMockInviteCodeRepo()
 	deptRepo := newMockDeptRepo()
 	repo := &repository.Repository{
 		User:         userRepo,
 		Department:   deptRepo,
-		InviteCode:   inviteRepo,
 		Semester:     newMockSemesterRepo(),
 		TimeSlot:     newMockTimeSlotRepo(),
 		Location:     newMockLocationRepo(),
@@ -306,7 +264,7 @@ func setupTestAuthService() (AuthService, *mockUserRepo, *mockInviteCodeRepo) {
 	logger := zap.NewNop()
 
 	svc := NewAuthService(cfg, repo, jwtMgr, nil, logger)
-	return svc, userRepo, inviteRepo
+	return svc, userRepo
 }
 
 func createTestUser(userRepo *mockUserRepo, studentID, password string) *model.User {
@@ -329,7 +287,7 @@ func createTestUser(userRepo *mockUserRepo, studentID, password string) *model.U
 // ── 登录测试 ──
 
 func TestLogin_Success(t *testing.T) {
-	svc, userRepo, _ := setupTestAuthService()
+	svc, userRepo := setupTestAuthService()
 	createTestUser(userRepo, "2024001", "password123")
 
 	result, err := svc.Login(context.Background(), &dto.LoginRequest{
@@ -355,7 +313,7 @@ func TestLogin_Success(t *testing.T) {
 }
 
 func TestLogin_WrongPassword(t *testing.T) {
-	svc, userRepo, _ := setupTestAuthService()
+	svc, userRepo := setupTestAuthService()
 	createTestUser(userRepo, "2024001", "password123")
 
 	_, err := svc.Login(context.Background(), &dto.LoginRequest{
@@ -369,7 +327,7 @@ func TestLogin_WrongPassword(t *testing.T) {
 }
 
 func TestLogin_UserNotFound(t *testing.T) {
-	svc, _, _ := setupTestAuthService()
+	svc, _ := setupTestAuthService()
 
 	_, err := svc.Login(context.Background(), &dto.LoginRequest{
 		StudentID: "nonexistent",
@@ -382,7 +340,7 @@ func TestLogin_UserNotFound(t *testing.T) {
 }
 
 func TestLogin_RememberMe(t *testing.T) {
-	svc, userRepo, _ := setupTestAuthService()
+	svc, userRepo := setupTestAuthService()
 	createTestUser(userRepo, "2024001", "password123")
 
 	result, err := svc.Login(context.Background(), &dto.LoginRequest{
@@ -399,142 +357,10 @@ func TestLogin_RememberMe(t *testing.T) {
 	}
 }
 
-// ── 注册测试 ──
-
-func TestRegister_Success(t *testing.T) {
-	svc, _, inviteRepo := setupTestAuthService()
-
-	// 预设有效邀请码
-	inviteRepo.codes["TESTCODE1"] = &model.InviteCode{
-		InviteCodeID: "invite-1",
-		Code:         "TESTCODE1",
-		ExpiresAt:    time.Now().Add(24 * time.Hour),
-	}
-
-	result, err := svc.Register(context.Background(), &dto.RegisterRequest{
-		InviteCode:   "TESTCODE1",
-		Name:         "新用户",
-		StudentID:    "2024099",
-		Email:        "new@test.com",
-		Password:     "password123",
-		DepartmentID: "valid-dept-id",
-	})
-
-	if err != nil {
-		t.Fatalf("Register 应成功: %v", err)
-	}
-	if result.Name != "新用户" {
-		t.Errorf("期望Name=新用户，实际=%s", result.Name)
-	}
-	if result.Email != "new@test.com" {
-		t.Errorf("期望Email=new@test.com，实际=%s", result.Email)
-	}
-}
-
-func TestRegister_InvalidInviteCode(t *testing.T) {
-	svc, _, _ := setupTestAuthService()
-
-	_, err := svc.Register(context.Background(), &dto.RegisterRequest{
-		InviteCode:   "INVALID",
-		Name:         "新用户",
-		StudentID:    "2024099",
-		Email:        "new@test.com",
-		Password:     "password123",
-		DepartmentID: "valid-dept-id",
-	})
-
-	if !errors.Is(err, ErrInviteCodeInvalid) {
-		t.Errorf("期望 ErrInviteCodeInvalid，实际: %v", err)
-	}
-}
-
-func TestRegister_ExpiredInviteCode(t *testing.T) {
-	svc, _, inviteRepo := setupTestAuthService()
-
-	inviteRepo.codes["EXPIRED1"] = &model.InviteCode{
-		InviteCodeID: "invite-expired",
-		Code:         "EXPIRED1",
-		ExpiresAt:    time.Now().Add(-1 * time.Hour), // 已过期
-	}
-
-	_, err := svc.Register(context.Background(), &dto.RegisterRequest{
-		InviteCode:   "EXPIRED1",
-		Name:         "新用户",
-		StudentID:    "2024099",
-		Email:        "new@test.com",
-		Password:     "password123",
-		DepartmentID: "valid-dept-id",
-	})
-
-	if !errors.Is(err, ErrInviteCodeInvalid) {
-		t.Errorf("期望 ErrInviteCodeInvalid，实际: %v", err)
-	}
-}
-
-func TestRegister_DuplicateStudentID(t *testing.T) {
-	svc, userRepo, inviteRepo := setupTestAuthService()
-	createTestUser(userRepo, "2024001", "password123")
-
-	inviteRepo.codes["CODE2"] = &model.InviteCode{
-		InviteCodeID: "invite-2",
-		Code:         "CODE2",
-		ExpiresAt:    time.Now().Add(24 * time.Hour),
-	}
-
-	_, err := svc.Register(context.Background(), &dto.RegisterRequest{
-		InviteCode:   "CODE2",
-		Name:         "重复用户",
-		StudentID:    "2024001", // 已存在
-		Email:        "dup@test.com",
-		Password:     "password123",
-		DepartmentID: "valid-dept-id",
-	})
-
-	if !errors.Is(err, ErrStudentIDExists) {
-		t.Errorf("期望 ErrStudentIDExists，实际: %v", err)
-	}
-}
-
-func TestRegister_WeakPassword(t *testing.T) {
-	svc, _, inviteRepo := setupTestAuthService()
-
-	inviteRepo.codes["CODE3"] = &model.InviteCode{
-		InviteCodeID: "invite-3",
-		Code:         "CODE3",
-		ExpiresAt:    time.Now().Add(24 * time.Hour),
-	}
-
-	tests := []struct {
-		name     string
-		password string
-	}{
-		{"仅数字", "12345678"},
-		{"仅字母", "abcdefgh"},
-		{"太短", "abc1"},
-		{"太长", "abcdefghijklmnopqrst1"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			_, err := svc.Register(context.Background(), &dto.RegisterRequest{
-				InviteCode:   "CODE3",
-				Name:         "测试",
-				StudentID:    "20240" + tt.name,
-				Email:        tt.name + "@test.com",
-				Password:     tt.password,
-				DepartmentID: "valid-dept-id",
-			})
-			if !errors.Is(err, ErrWeakPassword) {
-				t.Errorf("密码 %q 期望 ErrWeakPassword，实际: %v", tt.password, err)
-			}
-		})
-	}
-}
-
 // ── RefreshToken 测试 ──
 
 func TestRefreshToken_Success(t *testing.T) {
-	svc, userRepo, _ := setupTestAuthService()
+	svc, userRepo := setupTestAuthService()
 	user := createTestUser(userRepo, "2024001", "password123")
 
 	// 先登录获取 refresh token
@@ -561,7 +387,7 @@ func TestRefreshToken_Success(t *testing.T) {
 }
 
 func TestRefreshToken_InvalidToken(t *testing.T) {
-	svc, _, _ := setupTestAuthService()
+	svc, _ := setupTestAuthService()
 
 	_, err := svc.RefreshToken(context.Background(), "invalid.token.string")
 	if !errors.Is(err, ErrTokenInvalid) {
@@ -570,7 +396,7 @@ func TestRefreshToken_InvalidToken(t *testing.T) {
 }
 
 func TestRefreshToken_AccessTokenNotAllowed(t *testing.T) {
-	svc, userRepo, _ := setupTestAuthService()
+	svc, userRepo := setupTestAuthService()
 	createTestUser(userRepo, "2024001", "password123")
 
 	loginResult, _ := svc.Login(context.Background(), &dto.LoginRequest{
@@ -585,82 +411,10 @@ func TestRefreshToken_AccessTokenNotAllowed(t *testing.T) {
 	}
 }
 
-// ── GenerateInvite 测试 ──
-
-func TestGenerateInvite_Success(t *testing.T) {
-	svc, userRepo, _ := setupTestAuthService()
-	createTestUser(userRepo, "2024001", "password123")
-
-	result, err := svc.GenerateInvite(context.Background(), "user-2024001", 7)
-	if err != nil {
-		t.Fatalf("GenerateInvite 应成功: %v", err)
-	}
-
-	if result.InviteCode == "" {
-		t.Error("InviteCode 不应为空")
-	}
-	if len(result.InviteCode) != 9 {
-		t.Errorf("邀请码长度期望 9，实际=%d", len(result.InviteCode))
-	}
-	if result.InviteURL == "" {
-		t.Error("InviteURL 不应为空")
-	}
-}
-
-func TestGenerateInvite_DefaultDays(t *testing.T) {
-	svc, userRepo, _ := setupTestAuthService()
-	createTestUser(userRepo, "2024001", "password123")
-
-	result, err := svc.GenerateInvite(context.Background(), "user-2024001", 0)
-	if err != nil {
-		t.Fatalf("GenerateInvite(默认天数) 应成功: %v", err)
-	}
-
-	if result.ExpiresAt == "" {
-		t.Error("ExpiresAt 不应为空")
-	}
-}
-
-// ── ValidateInvite 测试 ──
-
-func TestValidateInvite_Valid(t *testing.T) {
-	svc, userRepo, inviteRepo := setupTestAuthService()
-	createTestUser(userRepo, "2024001", "password123")
-
-	inviteRepo.codes["VALIDCODE"] = &model.InviteCode{
-		InviteCodeID: "invite-valid",
-		Code:         "VALIDCODE",
-		ExpiresAt:    time.Now().Add(24 * time.Hour),
-	}
-
-	result, err := svc.ValidateInvite(context.Background(), "VALIDCODE")
-	if err != nil {
-		t.Fatalf("ValidateInvite 应成功: %v", err)
-	}
-	if !result.Valid {
-		t.Error("期望 Valid=true")
-	}
-}
-
-func TestValidateInvite_Expired(t *testing.T) {
-	svc, _, inviteRepo := setupTestAuthService()
-
-	inviteRepo.codes["EXPCODE"] = &model.InviteCode{
-		InviteCodeID: "invite-exp",
-		Code:         "EXPCODE",
-		ExpiresAt:    time.Now().Add(-1 * time.Hour),
-	}
-
-	_, err := svc.ValidateInvite(context.Background(), "EXPCODE")
-	if !errors.Is(err, ErrInviteCodeInvalid) {
-		t.Errorf("期望 ErrInviteCodeInvalid，实际: %v", err)
-	}
-}
-
 // ── ChangePassword 测试 ──
 
 func TestChangePassword_Success(t *testing.T) {
-	svc, userRepo, _ := setupTestAuthService()
+	svc, userRepo := setupTestAuthService()
 	createTestUser(userRepo, "2024001", "password123")
 
 	err := svc.ChangePassword(context.Background(), "user-2024001", &dto.ChangePasswordRequest{
@@ -683,7 +437,7 @@ func TestChangePassword_Success(t *testing.T) {
 }
 
 func TestChangePassword_WrongOldPassword(t *testing.T) {
-	svc, userRepo, _ := setupTestAuthService()
+	svc, userRepo := setupTestAuthService()
 	createTestUser(userRepo, "2024001", "password123")
 
 	err := svc.ChangePassword(context.Background(), "user-2024001", &dto.ChangePasswordRequest{
@@ -697,7 +451,7 @@ func TestChangePassword_WrongOldPassword(t *testing.T) {
 }
 
 func TestChangePassword_WeakNewPassword(t *testing.T) {
-	svc, userRepo, _ := setupTestAuthService()
+	svc, userRepo := setupTestAuthService()
 	createTestUser(userRepo, "2024001", "password123")
 
 	err := svc.ChangePassword(context.Background(), "user-2024001", &dto.ChangePasswordRequest{
@@ -713,7 +467,7 @@ func TestChangePassword_WeakNewPassword(t *testing.T) {
 // ── GetCurrentUser 测试 ──
 
 func TestGetCurrentUser_Success(t *testing.T) {
-	svc, userRepo, _ := setupTestAuthService()
+	svc, userRepo := setupTestAuthService()
 	createTestUser(userRepo, "2024001", "password123")
 
 	result, err := svc.GetCurrentUser(context.Background(), "user-2024001")
@@ -730,7 +484,7 @@ func TestGetCurrentUser_Success(t *testing.T) {
 }
 
 func TestGetCurrentUser_NotFound(t *testing.T) {
-	svc, _, _ := setupTestAuthService()
+	svc, _ := setupTestAuthService()
 
 	_, err := svc.GetCurrentUser(context.Background(), "nonexistent")
 	if !errors.Is(err, ErrUserNotFound) {

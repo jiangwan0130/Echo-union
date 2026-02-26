@@ -97,81 +97,16 @@ func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	response.OK(c, result)
 }
 
-// ────────────────────── GenerateInvite ──────────────────────
-// POST /api/v1/auth/invite
+// ────────────────────── GetCurrentUser ──────────────────────
+// GET /api/v1/auth/me
 
-func (h *AuthHandler) GenerateInvite(c *gin.Context) {
+func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 	userID, ok := MustGetUserID(c)
 	if !ok {
 		return
 	}
 
-	var req dto.GenerateInviteRequest
-	// 允许空 body（使用默认 7 天）
-	_ = c.ShouldBindJSON(&req)
-
-	result, err := h.authSvc.GenerateInvite(c.Request.Context(), userID, req.ExpiresDays)
-	if err != nil {
-		response.InternalError(c)
-		return
-	}
-
-	response.OK(c, result)
-}
-
-// ────────────────────── ValidateInvite ──────────────────────
-// GET /api/v1/auth/invite/:code
-
-func (h *AuthHandler) ValidateInvite(c *gin.Context) {
-	code := c.Param("code")
-	if code == "" {
-		response.BadRequest(c, 10001, "邀请码不能为空")
-		return
-	}
-
-	result, err := h.authSvc.ValidateInvite(c.Request.Context(), code)
-	if err != nil {
-		if errors.Is(err, service.ErrInviteCodeInvalid) {
-			response.BadRequest(c, 11004, "邀请码无效或已过期")
-			return
-		}
-		response.InternalError(c)
-		return
-	}
-
-	response.OK(c, result)
-}
-
-// ────────────────────── Register ──────────────────────
-// POST /api/v1/auth/register
-
-func (h *AuthHandler) Register(c *gin.Context) {
-	var req dto.RegisterRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, 10001, "参数校验失败")
-		return
-	}
-
-	result, err := h.authSvc.Register(c.Request.Context(), &req)
-	if err != nil {
-		h.handleAuthError(c, err)
-		return
-	}
-
-	response.Created(c, result)
-}
-
-// ────────────────────── GetCurrentUser ──────────────────────
-// GET /api/v1/auth/me
-
-func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		response.Unauthorized(c, 10002, "未认证")
-		return
-	}
-
-	result, err := h.authSvc.GetCurrentUser(c.Request.Context(), userID.(string))
+	result, err := h.authSvc.GetCurrentUser(c.Request.Context(), userID)
 	if err != nil {
 		if errors.Is(err, service.ErrUserNotFound) {
 			response.NotFound(c, 12001, "用户不存在")
@@ -188,9 +123,8 @@ func (h *AuthHandler) GetCurrentUser(c *gin.Context) {
 // PUT /api/v1/auth/password
 
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
-	userID, exists := c.Get("user_id")
-	if !exists {
-		response.Unauthorized(c, 10002, "未认证")
+	userID, ok := MustGetUserID(c)
+	if !ok {
 		return
 	}
 
@@ -200,7 +134,7 @@ func (h *AuthHandler) ChangePassword(c *gin.Context) {
 		return
 	}
 
-	if err := h.authSvc.ChangePassword(c.Request.Context(), userID.(string), &req); err != nil {
+	if err := h.authSvc.ChangePassword(c.Request.Context(), userID, &req); err != nil {
 		h.handleAuthError(c, err)
 		return
 	}
@@ -221,8 +155,6 @@ func (h *AuthHandler) handleAuthError(c *gin.Context, err error) {
 		response.Error(c, http.StatusUnauthorized, 11003, "Token无效")
 	case errors.Is(err, service.ErrTokenBlacklisted):
 		response.Error(c, http.StatusUnauthorized, 11003, "Token已被吊销")
-	case errors.Is(err, service.ErrInviteCodeInvalid):
-		response.BadRequest(c, 11004, "邀请码无效或已过期")
 	case errors.Is(err, service.ErrEmailExists):
 		response.BadRequest(c, 11005, "邮箱已被注册")
 	case errors.Is(err, service.ErrStudentIDExists):

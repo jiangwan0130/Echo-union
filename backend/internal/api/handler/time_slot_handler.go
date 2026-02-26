@@ -65,9 +65,12 @@ func (h *TimeSlotHandler) CreateTimeSlot(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	slot, err := h.timeSlotSvc.Create(c.Request.Context(), &req, callerID.(string))
+	slot, err := h.timeSlotSvc.Create(c.Request.Context(), &req, callerID)
 	if err != nil {
 		h.handleTimeSlotError(c, err)
 		return
@@ -91,9 +94,12 @@ func (h *TimeSlotHandler) UpdateTimeSlot(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	slot, err := h.timeSlotSvc.Update(c.Request.Context(), id, &req, callerID.(string))
+	slot, err := h.timeSlotSvc.Update(c.Request.Context(), id, &req, callerID)
 	if err != nil {
 		h.handleTimeSlotError(c, err)
 		return
@@ -111,9 +117,12 @@ func (h *TimeSlotHandler) DeleteTimeSlot(c *gin.Context) {
 		return
 	}
 
-	callerID, _ := c.Get("user_id")
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
 
-	if err := h.timeSlotSvc.Delete(c.Request.Context(), id, callerID.(string)); err != nil {
+	if err := h.timeSlotSvc.Delete(c.Request.Context(), id, callerID); err != nil {
 		h.handleTimeSlotError(c, err)
 		return
 	}

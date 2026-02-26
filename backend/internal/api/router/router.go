@@ -34,9 +34,7 @@ func Setup(cfg *config.Config, h *handler.Handler, jwtMgr *jwt.Manager, rdb *red
 		auth := v1.Group("/auth")
 		{
 			auth.POST("/login", h.Auth.Login)
-			auth.POST("/register", h.Auth.Register)
 			auth.POST("/refresh", h.Auth.RefreshToken)
-			auth.GET("/invite/:code", h.Auth.ValidateInvite)
 		}
 
 		// 需要认证的路由
@@ -47,7 +45,6 @@ func Setup(cfg *config.Config, h *handler.Handler, jwtMgr *jwt.Manager, rdb *red
 			authorized.POST("/auth/logout", h.Auth.Logout)
 			authorized.GET("/auth/me", h.Auth.GetCurrentUser)
 			authorized.PUT("/auth/password", h.Auth.ChangePassword)
-			authorized.POST("/auth/invite", middleware.RoleAuth("admin", "leader"), h.Auth.GenerateInvite)
 
 			// 用户模块
 			users := authorized.Group("/users")

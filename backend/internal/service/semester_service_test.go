@@ -20,7 +20,6 @@ func setupTestSemesterService() (SemesterService, *mockSemesterRepo) {
 	repo := &repository.Repository{
 		User:         newMockUserRepo(),
 		Department:   newMockDeptRepo(),
-		InviteCode:   newMockInviteCodeRepo(),
 		Semester:     semesterRepo,
 		TimeSlot:     newMockTimeSlotRepo(),
 		Location:     newMockLocationRepo(),

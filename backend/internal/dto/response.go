@@ -10,26 +10,6 @@ type TokenResponse struct {
 	User         UserResponse `json:"user"`
 }
 
-// InviteResponse 邀请码响应
-type InviteResponse struct {
-	InviteCode string `json:"invite_code"`
-	InviteURL  string `json:"invite_url"`
-	ExpiresAt  string `json:"expires_at"`
-}
-
-// InviteValidateResponse 邀请码验证响应
-type InviteValidateResponse struct {
-	Valid     bool   `json:"valid"`
-	ExpiresAt string `json:"expires_at"`
-}
-
-// RegisterResponse 注册成功响应
-type RegisterResponse struct {
-	ID    string `json:"id"`
-	Name  string `json:"name"`
-	Email string `json:"email"`
-}
-
 // ── 用户模块响应 ──
 
 // UserResponse 用户信息响应（脱敏）

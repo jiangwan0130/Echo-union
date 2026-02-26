@@ -20,7 +20,6 @@ func setupTestTimeSlotService() (TimeSlotService, *mockTimeSlotRepo, *mockSemest
 	repo := &repository.Repository{
 		User:         newMockUserRepo(),
 		Department:   newMockDeptRepo(),
-		InviteCode:   newMockInviteCodeRepo(),
 		Semester:     semesterRepo,
 		TimeSlot:     timeSlotRepo,
 		Location:     newMockLocationRepo(),

@@ -22,7 +22,6 @@ func setupTestDepartmentService() (DepartmentService, *mockDeptRepo, *mockUserRe
 	repo := &repository.Repository{
 		User:                   userRepo,
 		Department:             deptRepo,
-		InviteCode:             newMockInviteCodeRepo(),
 		Semester:               semRepo,
 		TimeSlot:               newMockTimeSlotRepo(),
 		Location:               newMockLocationRepo(),

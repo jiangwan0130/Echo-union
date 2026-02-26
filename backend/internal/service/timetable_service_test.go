@@ -327,7 +327,6 @@ func setupTestTimetableService() (TimetableService, *testTimetableRepos) {
 	repoAgg := &repository.Repository{
 		User:                   newMockUserRepo(),
 		Department:             repos.department,
-		InviteCode:             newMockInviteCodeRepo(),
 		Semester:               repos.semester,
 		TimeSlot:               newMockTimeSlotRepo(),
 		Location:               newMockLocationRepo(),

@@ -31,25 +31,16 @@ func init() {
 type mockAuthService struct {
 	loginResult      *dto.TokenResponse
 	loginErr         error
-	registerResult   *dto.RegisterResponse
-	registerErr      error
 	refreshResult    *dto.TokenResponse
 	refreshErr       error
 	logoutErr        error
 	getCurrentResult *dto.UserDetailResponse
 	getCurrentErr    error
 	changePassErr    error
-	inviteResult     *dto.InviteResponse
-	inviteErr        error
-	validateResult   *dto.InviteValidateResponse
-	validateErr      error
 }
 
 func (m *mockAuthService) Login(_ context.Context, _ *dto.LoginRequest) (*dto.TokenResponse, error) {
 	return m.loginResult, m.loginErr
-}
-func (m *mockAuthService) Register(_ context.Context, _ *dto.RegisterRequest) (*dto.RegisterResponse, error) {
-	return m.registerResult, m.registerErr
 }
 func (m *mockAuthService) RefreshToken(_ context.Context, _ string) (*dto.TokenResponse, error) {
 	return m.refreshResult, m.refreshErr
@@ -62,12 +53,6 @@ func (m *mockAuthService) GetCurrentUser(_ context.Context, _ string) (*dto.User
 }
 func (m *mockAuthService) ChangePassword(_ context.Context, _ string, _ *dto.ChangePasswordRequest) error {
 	return m.changePassErr
-}
-func (m *mockAuthService) GenerateInvite(_ context.Context, _ string, _ int) (*dto.InviteResponse, error) {
-	return m.inviteResult, m.inviteErr
-}
-func (m *mockAuthService) ValidateInvite(_ context.Context, _ string) (*dto.InviteValidateResponse, error) {
-	return m.validateResult, m.validateErr
 }
 
 // ── Mock ScheduleService ──
@@ -257,64 +242,6 @@ func TestAuthHandler_Login_InvalidCredentials(t *testing.T) {
 	}
 }
 
-func TestAuthHandler_Register_Success(t *testing.T) {
-	mock := &mockAuthService{
-		registerResult: &dto.RegisterResponse{
-			ID:    "new-user-id",
-			Name:  "测试用户",
-			Email: "test@edu.cn",
-		},
-	}
-	h := NewAuthHandler(mock, nil)
-
-	_, _, w := setupGin()
-	req := httptest.NewRequest("POST", "/auth/register", jsonBody(dto.RegisterRequest{
-		StudentID:    "2024002",
-		Password:     "Test1234",
-		Name:         "测试用户",
-		Email:        "test@edu.cn",
-		InviteCode:   "ABC123DEF",
-		DepartmentID: "11111111-1111-1111-1111-111111111111",
-	}))
-	req.Header.Set("Content-Type", "application/json")
-
-	r := gin.New()
-	r.POST("/auth/register", h.Register)
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusCreated {
-		t.Errorf("expected 201, got %d", w.Code)
-	}
-}
-
-func TestAuthHandler_Register_DuplicateStudentID(t *testing.T) {
-	mock := &mockAuthService{registerErr: service.ErrStudentIDExists}
-	h := NewAuthHandler(mock, nil)
-
-	_, _, w := setupGin()
-	req := httptest.NewRequest("POST", "/auth/register", jsonBody(dto.RegisterRequest{
-		StudentID:    "2024001",
-		Password:     "Test1234",
-		Name:         "测试用户",
-		Email:        "new@edu.cn",
-		InviteCode:   "ABC123DEF",
-		DepartmentID: "11111111-1111-1111-1111-111111111111",
-	}))
-	req.Header.Set("Content-Type", "application/json")
-
-	r := gin.New()
-	r.POST("/auth/register", h.Register)
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
-	}
-	resp := parseResponse(w)
-	if resp.Code != 11006 {
-		t.Errorf("expected error code 11006, got %d", resp.Code)
-	}
-}
-
 func TestAuthHandler_RefreshToken_Success(t *testing.T) {
 	mock := &mockAuthService{
 		refreshResult: &dto.TokenResponse{
@@ -489,43 +416,6 @@ func TestAuthHandler_Logout_Success(t *testing.T) {
 		if c.Name == "refresh_token" && c.MaxAge >= 0 {
 			t.Error("expected refresh_token cookie to be cleared")
 		}
-	}
-}
-
-func TestAuthHandler_ValidateInvite_Success(t *testing.T) {
-	mock := &mockAuthService{
-		validateResult: &dto.InviteValidateResponse{
-			Valid:     true,
-			ExpiresAt: "2026-03-01T00:00:00Z",
-		},
-	}
-	h := NewAuthHandler(mock, nil)
-
-	_, _, w := setupGin()
-	req := httptest.NewRequest("GET", "/auth/invite/ABC123DEF", nil)
-
-	r := gin.New()
-	r.GET("/auth/invite/:code", h.ValidateInvite)
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d", w.Code)
-	}
-}
-
-func TestAuthHandler_ValidateInvite_Invalid(t *testing.T) {
-	mock := &mockAuthService{validateErr: service.ErrInviteCodeInvalid}
-	h := NewAuthHandler(mock, nil)
-
-	_, _, w := setupGin()
-	req := httptest.NewRequest("GET", "/auth/invite/BADCODE", nil)
-
-	r := gin.New()
-	r.GET("/auth/invite/:code", h.ValidateInvite)
-	r.ServeHTTP(w, req)
-
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("expected 400, got %d", w.Code)
 	}
 }
 

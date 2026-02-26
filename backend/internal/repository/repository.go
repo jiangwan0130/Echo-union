@@ -11,7 +11,6 @@ type Repository struct {
 	db                     *gorm.DB
 	User                   UserRepository
 	Department             DepartmentRepository
-	InviteCode             InviteCodeRepository
 	Semester               SemesterRepository
 	TimeSlot               TimeSlotRepository
 	Location               LocationRepository
@@ -32,7 +31,6 @@ func NewRepository(db *gorm.DB) *Repository {
 		db:                     db,
 		User:                   NewUserRepo(db),
 		Department:             NewDepartmentRepo(db),
-		InviteCode:             NewInviteCodeRepo(db),
 		Semester:               NewSemesterRepo(db),
 		TimeSlot:               NewTimeSlotRepo(db),
 		Location:               NewLocationRepo(db),
@@ -73,7 +71,6 @@ func (r *Repository) WithTx(tx *gorm.DB) *Repository {
 		db:                     tx,
 		User:                   NewUserRepo(tx),
 		Department:             NewDepartmentRepo(tx),
-		InviteCode:             NewInviteCodeRepo(tx),
 		Semester:               NewSemesterRepo(tx),
 		TimeSlot:               NewTimeSlotRepo(tx),
 		Location:               NewLocationRepo(tx),

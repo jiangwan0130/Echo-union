@@ -2,10 +2,7 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
-	"fmt"
-	"math/big"
 	"regexp"
 	"time"
 
@@ -29,7 +26,6 @@ var (
 	ErrTokenExpired       = errors.New("Token 已过期")
 	ErrTokenInvalid       = errors.New("Token 无效")
 	ErrTokenBlacklisted   = errors.New("Token 已被吊销")
-	ErrInviteCodeInvalid  = errors.New("邀请码无效或已过期")
 	ErrEmailExists        = errors.New("邮箱已被注册")
 	ErrStudentIDExists    = errors.New("学号已被注册")
 	ErrWeakPassword       = errors.New("密码必须包含字母和数字，长度8-20字符")
@@ -56,11 +52,8 @@ func validatePassword(password string) bool {
 // AuthService 认证业务接口
 type AuthService interface {
 	Login(ctx context.Context, req *dto.LoginRequest) (*dto.TokenResponse, error)
-	Register(ctx context.Context, req *dto.RegisterRequest) (*dto.RegisterResponse, error)
 	RefreshToken(ctx context.Context, refreshToken string) (*dto.TokenResponse, error)
 	Logout(ctx context.Context, accessJTI string, accessExp time.Time, refreshToken string) error
-	GenerateInvite(ctx context.Context, userID string, expiresDays int) (*dto.InviteResponse, error)
-	ValidateInvite(ctx context.Context, code string) (*dto.InviteValidateResponse, error)
 	ChangePassword(ctx context.Context, userID string, req *dto.ChangePasswordRequest) error
 	GetCurrentUser(ctx context.Context, userID string) (*dto.UserDetailResponse, error)
 }
@@ -112,138 +105,6 @@ func (s *authService) Login(ctx context.Context, req *dto.LoginRequest) (*dto.To
 
 	// 3. 生成 Token 对
 	return s.generateTokenPair(user, req.RememberMe)
-}
-
-// ────────────────────── Register ──────────────────────
-
-func (s *authService) Register(ctx context.Context, req *dto.RegisterRequest) (*dto.RegisterResponse, error) {
-	// 1. 密码强度校验（无需事务）
-	if !validatePassword(req.Password) {
-		return nil, ErrWeakPassword
-	}
-
-	// 2. 哈希密码（CPU 密集，放在事务外减少持锁时间）
-	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-	if err != nil {
-		s.logger.Error("密码哈希失败", zap.Error(err))
-		return nil, err
-	}
-
-	// 3. 开启事务，保证邀请码校验→用户创建→邀请码标记的原子性
-	var user *model.User
-	tx, err := s.repo.BeginTx(ctx)
-	if err != nil {
-		s.logger.Error("开启事务失败", zap.Error(err))
-		return nil, err
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			if tx != nil {
-				tx.Rollback()
-			}
-			panic(r)
-		}
-	}()
-
-	txRepo := s.repo.WithTx(tx)
-
-	// 3a. SELECT ... FOR UPDATE 锁定邀请码行，防并发重复使用
-	invite, err := txRepo.InviteCode.GetByCodeForUpdate(ctx, req.InviteCode)
-	if err != nil {
-		if tx != nil {
-			tx.Rollback()
-		}
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrInviteCodeInvalid
-		}
-		s.logger.Error("查询邀请码失败", zap.Error(err))
-		return nil, err
-	}
-	if invite.UsedAt != nil || invite.ExpiresAt.Before(time.Now()) {
-		if tx != nil {
-			tx.Rollback()
-		}
-		return nil, ErrInviteCodeInvalid
-	}
-
-	// 3b. 检查学号唯一性
-	if _, err := txRepo.User.GetByStudentID(ctx, req.StudentID); err == nil {
-		if tx != nil {
-			tx.Rollback()
-		}
-		return nil, ErrStudentIDExists
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		if tx != nil {
-			tx.Rollback()
-		}
-		s.logger.Error("检查学号唯一性失败", zap.Error(err))
-		return nil, err
-	}
-
-	// 3c. 检查邮箱唯一性
-	if _, err := txRepo.User.GetByEmail(ctx, req.Email); err == nil {
-		if tx != nil {
-			tx.Rollback()
-		}
-		return nil, ErrEmailExists
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		if tx != nil {
-			tx.Rollback()
-		}
-		s.logger.Error("检查邮箱唯一性失败", zap.Error(err))
-		return nil, err
-	}
-
-	// 3d. 验证部门存在
-	if _, err := txRepo.Department.GetByID(ctx, req.DepartmentID); err != nil {
-		if tx != nil {
-			tx.Rollback()
-		}
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("部门不存在")
-		}
-		return nil, err
-	}
-
-	// 3e. 创建用户
-	user = &model.User{
-		Name:         req.Name,
-		StudentID:    req.StudentID,
-		Email:        req.Email,
-		PasswordHash: string(hash),
-		Role:         "member",
-		DepartmentID: req.DepartmentID,
-	}
-	if err := txRepo.User.Create(ctx, user); err != nil {
-		if tx != nil {
-			tx.Rollback()
-		}
-		s.logger.Error("创建用户失败", zap.Error(err))
-		return nil, err
-	}
-
-	// 3f. 标记邀请码已使用
-	if err := txRepo.InviteCode.MarkUsed(ctx, invite.InviteCodeID, user.UserID); err != nil {
-		if tx != nil {
-			tx.Rollback()
-		}
-		s.logger.Error("标记邀请码已使用失败", zap.Error(err))
-		return nil, err
-	}
-
-	// 4. 提交事务
-	if tx != nil {
-		if err := tx.Commit().Error; err != nil {
-			s.logger.Error("提交事务失败", zap.Error(err))
-			return nil, err
-		}
-	}
-
-	return &dto.RegisterResponse{
-		ID:    user.UserID,
-		Name:  user.Name,
-		Email: user.Email,
-	}, nil
 }
 
 // ────────────────────── RefreshToken ──────────────────────
@@ -321,64 +182,6 @@ func (s *authService) Logout(ctx context.Context, accessJTI string, accessExp ti
 	}
 
 	return nil
-}
-
-// ────────────────────── GenerateInvite ──────────────────────
-
-func (s *authService) GenerateInvite(ctx context.Context, userID string, expiresDays int) (*dto.InviteResponse, error) {
-	if expiresDays <= 0 {
-		expiresDays = 7
-	}
-
-	code, err := generateInviteCode(9)
-	if err != nil {
-		s.logger.Error("生成邀请码失败", zap.Error(err))
-		return nil, err
-	}
-
-	expiresAt := time.Now().Add(time.Duration(expiresDays) * 24 * time.Hour)
-	createdBy := userID
-
-	invite := &model.InviteCode{
-		Code:      code,
-		ExpiresAt: expiresAt,
-	}
-	invite.CreatedBy = &createdBy
-
-	if err := s.repo.InviteCode.Create(ctx, invite); err != nil {
-		s.logger.Error("保存邀请码失败", zap.Error(err))
-		return nil, err
-	}
-
-	inviteURL := fmt.Sprintf("%s/register?code=%s", s.cfg.Server.BaseURL, code)
-
-	return &dto.InviteResponse{
-		InviteCode: code,
-		InviteURL:  inviteURL,
-		ExpiresAt:  expiresAt.Format(time.RFC3339),
-	}, nil
-}
-
-// ────────────────────── ValidateInvite ──────────────────────
-
-func (s *authService) ValidateInvite(ctx context.Context, code string) (*dto.InviteValidateResponse, error) {
-	invite, err := s.repo.InviteCode.GetByCode(ctx, code)
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrInviteCodeInvalid
-		}
-		s.logger.Error("查询邀请码失败", zap.Error(err))
-		return nil, err
-	}
-
-	if invite.UsedAt != nil || invite.ExpiresAt.Before(time.Now()) {
-		return nil, ErrInviteCodeInvalid
-	}
-
-	return &dto.InviteValidateResponse{
-		Valid:     true,
-		ExpiresAt: invite.ExpiresAt.Format(time.RFC3339),
-	}, nil
 }
 
 // ────────────────────── ChangePassword ──────────────────────
@@ -489,18 +292,4 @@ func (s *authService) generateTokenPair(user *model.User, rememberMe bool) (*dto
 			MustChangePassword: user.MustChangePassword,
 		},
 	}, nil
-}
-
-// generateInviteCode 生成加密安全的随机邀请码
-func generateInviteCode(length int) (string, error) {
-	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	result := make([]byte, length)
-	for i := range result {
-		n, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
-		if err != nil {
-			return "", err
-		}
-		result[i] = charset[n.Int64()]
-	}
-	return string(result), nil
 }

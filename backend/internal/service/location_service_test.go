@@ -19,7 +19,6 @@ func setupTestLocationService() (LocationService, *mockLocationRepo) {
 	repo := &repository.Repository{
 		User:         newMockUserRepo(),
 		Department:   newMockDeptRepo(),
-		InviteCode:   newMockInviteCodeRepo(),
 		Semester:     newMockSemesterRepo(),
 		TimeSlot:     newMockTimeSlotRepo(),
 		Location:     locationRepo,

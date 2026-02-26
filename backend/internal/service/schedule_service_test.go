@@ -55,7 +55,6 @@ func (r *testScheduleRepos) toRepository() *repository.Repository {
 	return &repository.Repository{
 		User:                   newMockUserRepo(),
 		Department:             newMockDeptRepo(),
-		InviteCode:             newMockInviteCodeRepo(),
 		Semester:               r.semester,
 		TimeSlot:               r.timeSlot,
 		Location:               newMockLocationRepo(),
