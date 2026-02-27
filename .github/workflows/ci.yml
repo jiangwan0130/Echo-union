@@ -1,10 +1,8 @@
 name: CI
 
+# CI/CD 已禁用 —— 仅保留手动触发
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   # ── 后端 ──
