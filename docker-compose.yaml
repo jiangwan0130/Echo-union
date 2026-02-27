@@ -39,6 +39,58 @@ services:
       timeout: 5s
       retries: 5
 
+  # 后端 API 服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: echo_union_backend
+    environment:
+      ECHO_SERVER_PORT: "8080"
+      ECHO_DB_HOST: postgres
+      ECHO_DB_PORT: "5432"
+      ECHO_DB_NAME: echo_union
+      ECHO_DB_USER: echo_union
+      ECHO_DB_PASSWORD: echo_union_password
+      ECHO_DB_SSLMODE: disable
+      ECHO_DB_TIMEZONE: Asia/Shanghai
+      ECHO_REDIS_ADDR: redis:6379
+      ECHO_REDIS_PASSWORD: redis_password
+      ECHO_AUTH_JWT_SECRET: "${JWT_SECRET:-echo-union-dev-secret-key-2026-change-in-production}"
+      ECHO_LOG_LEVEL: info
+      ECHO_LOG_FORMAT: json
+      ECHO_SERVER_CORS_ALLOW_ORIGINS: "http://localhost,http://localhost:80"
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - echo_union_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+  # 前端 Web 服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: echo_union_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - echo_union_network
+    restart: unless-stopped
+
 volumes:
   postgres_data:
     driver: local

@@ -33,15 +33,17 @@ type CORSConfig struct {
 
 // DatabaseConfig PostgreSQL 数据库配置
 type DatabaseConfig struct {
-	Host         string `mapstructure:"host"`
-	Port         int    `mapstructure:"port"`
-	Name         string `mapstructure:"name"`
-	User         string `mapstructure:"user"`
-	Password     string `mapstructure:"password"`
-	SSLMode      string `mapstructure:"sslmode"`
-	Timezone     string `mapstructure:"timezone"`
-	MaxOpenConns int    `mapstructure:"max_open_conns"`
-	MaxIdleConns int    `mapstructure:"max_idle_conns"`
+	Host            string `mapstructure:"host"`
+	Port            int    `mapstructure:"port"`
+	Name            string `mapstructure:"name"`
+	User            string `mapstructure:"user"`
+	Password        string `mapstructure:"password"`
+	SSLMode         string `mapstructure:"sslmode"`
+	Timezone        string `mapstructure:"timezone"`
+	MaxOpenConns    int    `mapstructure:"max_open_conns"`
+	MaxIdleConns    int    `mapstructure:"max_idle_conns"`
+	ConnMaxLifetime int    `mapstructure:"conn_max_lifetime"`  // 连接最大生命周期（分钟）
+	ConnMaxIdleTime int    `mapstructure:"conn_max_idle_time"` // 空闲连接最大存活时间（分钟）
 }
 
 // DSN 生成 PostgreSQL 连接字符串
@@ -114,6 +116,8 @@ func Load(path string) (*Config, error) {
 	v.SetDefault("db.timezone", "Asia/Shanghai")
 	v.SetDefault("db.max_open_conns", 25)
 	v.SetDefault("db.max_idle_conns", 10)
+	v.SetDefault("db.conn_max_lifetime", 60)  // 60分钟
+	v.SetDefault("db.conn_max_idle_time", 30) // 30分钟
 
 	v.SetDefault("redis.addr", "localhost:6379")
 	v.SetDefault("redis.password", "")
@@ -157,7 +161,26 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("解析配置失败: %w", err)
 	}
 
+	// ── 关键配置校验 ──
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
+}
+
+// Validate 校验关键配置项
+func (c *Config) Validate() error {
+	if c.Auth.JWTSecret == "" {
+		return fmt.Errorf("配置校验失败: auth.jwt_secret 不能为空")
+	}
+	if len(c.Auth.JWTSecret) < 16 {
+		return fmt.Errorf("配置校验失败: auth.jwt_secret 长度不能少于 16 字符")
+	}
+	if c.Server.Port <= 0 || c.Server.Port > 65535 {
+		return fmt.Errorf("配置校验失败: server.port 必须在 1-65535 之间")
+	}
+	return nil
 }
 
 // [自证通过] config/config.go

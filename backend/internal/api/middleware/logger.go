@@ -20,6 +20,7 @@ func Logger(logger *zap.Logger) gin.HandlerFunc {
 		statusCode := c.Writer.Status()
 
 		fields := []zap.Field{
+			zap.String("request_id", c.GetString("request_id")),
 			zap.Int("status", statusCode),
 			zap.String("method", c.Request.Method),
 			zap.String("path", path),

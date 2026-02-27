@@ -47,9 +47,9 @@ func (h *ExportHandler) ExportSchedule(c *gin.Context) {
 func (h *ExportHandler) handleExportError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrExportNoSchedule):
-		response.NotFound(c, 16001, "该学期暂无排班表")
+		response.NotFound(c, 16101, "该学期暂无排班表")
 	case errors.Is(err, service.ErrExportNoItems):
-		response.BadRequest(c, 16002, "排班表中无排班项")
+		response.BadRequest(c, 16102, "排班表中无排班项")
 	case errors.Is(err, service.ErrExportGenerateFail):
 		response.InternalError(c)
 	default:

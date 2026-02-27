@@ -4,6 +4,11 @@ import type {
   SemesterInfo,
   CreateSemesterRequest,
   UpdateSemesterRequest,
+  PhaseCheckResponse,
+  AdvancePhaseRequest,
+  DutyMemberItem,
+  DutyMembersRequest,
+  PendingTodoItem,
   TimeSlotInfo,
   CreateTimeSlotRequest,
   UpdateTimeSlotRequest,
@@ -40,6 +45,29 @@ export const semesterApi = {
 
   delete: (id: string) =>
     api.delete<ApiResponse<null>>(`/semesters/${id}`),
+
+  // ── 阶段推进 ──
+
+  checkPhase: (id: string) =>
+    api.get<ApiResponse<PhaseCheckResponse>>(`/semesters/${id}/phase-check`),
+
+  advancePhase: (id: string, data: AdvancePhaseRequest) =>
+    api.put<ApiResponse<null>>(`/semesters/${id}/phase`, data),
+
+  // ── 值班人员管理 ──
+
+  getDutyMembers: (id: string) =>
+    api.get<ApiResponse<{ list: DutyMemberItem[] }>>(`/semesters/${id}/duty-members`),
+
+  setDutyMembers: (id: string, data: DutyMembersRequest) =>
+    api.put<ApiResponse<null>>(`/semesters/${id}/duty-members`, data),
+};
+
+// ── 待办通知 ──
+
+export const notificationApi = {
+  getPending: () =>
+    api.get<ApiResponse<{ list: PendingTodoItem[] }>>('/notifications/pending'),
 };
 
 // ── 时间段 ──

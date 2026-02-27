@@ -62,7 +62,7 @@ type mockScheduleService struct {
 	autoErr               error
 	getResult             *dto.ScheduleResponse
 	getErr                error
-	myResult              []dto.ScheduleItemResponse
+	myResult              *dto.ScheduleResponse
 	myErr                 error
 	updateItemResult      *dto.ScheduleItemResponse
 	updateItemErr         error
@@ -87,7 +87,7 @@ func (m *mockScheduleService) AutoSchedule(_ context.Context, _ *dto.AutoSchedul
 func (m *mockScheduleService) GetSchedule(_ context.Context, _ string) (*dto.ScheduleResponse, error) {
 	return m.getResult, m.getErr
 }
-func (m *mockScheduleService) GetMySchedule(_ context.Context, _, _ string) ([]dto.ScheduleItemResponse, error) {
+func (m *mockScheduleService) GetMySchedule(_ context.Context, _, _ string) (*dto.ScheduleResponse, error) {
 	return m.myResult, m.myErr
 }
 func (m *mockScheduleService) UpdateItem(_ context.Context, _ string, _ *dto.UpdateScheduleItemRequest, _ string) (*dto.ScheduleItemResponse, error) {

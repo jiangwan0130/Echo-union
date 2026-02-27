@@ -58,7 +58,14 @@ func FetchICSContent(rawURL string) (io.ReadCloser, error) {
 		resp.Body.Close()
 		return nil, fmt.Errorf("获取 ICS 失败: HTTP %d", resp.StatusCode)
 	}
-	return resp.Body, nil
+	// 限制响应体大小，防止恶意 URL 返回超大内容导致 OOM
+	return struct {
+		io.Reader
+		io.Closer
+	}{
+		Reader: io.LimitReader(resp.Body, icsMaxFileSize),
+		Closer: resp.Body,
+	}, nil
 }
 
 // ParseICS 解析 ICS 内容并转为 CourseSchedule 列表

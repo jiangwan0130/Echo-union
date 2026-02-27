@@ -44,11 +44,20 @@ func main() {
 	)
 
 	// 3. 连接数据库
-	db, err := database.NewDB(&cfg.Database, logger)
+	db, err := database.NewDB(&cfg.Database, cfg.Log.Level, logger)
 	if err != nil {
 		logger.Fatal("数据库连接失败", zap.Error(err))
 	}
 	logger.Info("数据库连接成功")
+
+	// 3.1 执行数据库迁移
+	sqlDB, err := db.DB()
+	if err != nil {
+		logger.Fatal("获取底层 sql.DB 失败", zap.Error(err))
+	}
+	if err := database.RunMigrations(sqlDB, logger); err != nil {
+		logger.Fatal("数据库迁移失败", zap.Error(err))
+	}
 
 	// 4. 连接 Redis（可选：连接失败时降级运行，不中断启动）
 	var rdb *redis.Client
@@ -67,7 +76,7 @@ func main() {
 	h := handler.NewHandler(cfg, svc)
 
 	// 7. 初始化路由
-	engine := router.Setup(cfg, h, jwtMgr, rdb, logger)
+	engine := router.Setup(cfg, h, jwtMgr, rdb, db, logger)
 
 	// 8. 启动 HTTP 服务器（优雅关闭）
 	srv := &http.Server{
@@ -100,9 +109,9 @@ func main() {
 	}
 
 	// 关闭数据库连接
-	sqlDB, _ := db.DB()
-	if sqlDB != nil {
-		sqlDB.Close()
+	closeDB, _ := db.DB()
+	if closeDB != nil {
+		closeDB.Close()
 	}
 
 	// 关闭 Redis 连接

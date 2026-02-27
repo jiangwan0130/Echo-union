@@ -7,7 +7,6 @@ import {
   Form,
   Input,
   Switch,
-  Tag,
   Tooltip,
   message,
   Typography,
@@ -45,8 +44,7 @@ export default function LocationTab() {
     setLoading(true);
     try {
       const { data } = await locationApi.list({ include_inactive: true });
-      const raw = data.data;
-      setLocations(Array.isArray(raw) ? raw : (raw as unknown as { list: LocationInfo[] }).list ?? []);
+      setLocations(data.data as LocationInfo[]);
     } catch {
       message.error('获取地点列表失败');
     } finally {

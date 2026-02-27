@@ -565,11 +565,6 @@ func (s *timetableService) rollbackTimetableStatusTx(ctx context.Context, repo *
 	}
 }
 
-// rollbackTimetableStatus 非事务版本，向后兼容
-func (s *timetableService) rollbackTimetableStatus(ctx context.Context, userID, semesterID string) {
-	s.rollbackTimetableStatusTx(ctx, s.repo, userID, semesterID)
-}
-
 // ── 响应转换器 ──
 
 func toCourseResponses(courses []model.CourseSchedule) []dto.CourseResponse {

@@ -28,6 +28,50 @@ type SemesterResponse struct {
 	FirstWeekType string `json:"first_week_type"`
 	IsActive      bool   `json:"is_active"`
 	Status        string `json:"status"`
+	Phase         string `json:"phase"`
 	CreatedAt     string `json:"created_at"`
 	UpdatedAt     string `json:"updated_at"`
+}
+
+// ── 阶段推进 DTO ──
+
+// AdvancePhaseRequest 阶段推进请求
+type AdvancePhaseRequest struct {
+	TargetPhase string `json:"target_phase" binding:"required,oneof=configuring collecting scheduling published"`
+}
+
+// PhaseCheckResponse 阶段完成条件检查响应
+type PhaseCheckResponse struct {
+	CurrentPhase string           `json:"current_phase"`
+	CanAdvance   bool             `json:"can_advance"`
+	Checks       []PhaseCheckItem `json:"checks"`
+}
+
+// PhaseCheckItem 单项检查结果
+type PhaseCheckItem struct {
+	Label   string `json:"label"`
+	Passed  bool   `json:"passed"`
+	Message string `json:"message,omitempty"`
+}
+
+// DutyMembersRequest 批量设置值班人员请求
+type DutyMembersRequest struct {
+	UserIDs []string `json:"user_ids" binding:"required"`
+}
+
+// DutyMemberItem 值班人员信息
+type DutyMemberItem struct {
+	UserID         string `json:"user_id"`
+	Name           string `json:"name"`
+	StudentID      string `json:"student_id"`
+	DepartmentID   string `json:"department_id"`
+	DepartmentName string `json:"department_name"`
+	DutyRequired   bool   `json:"duty_required"`
+}
+
+// PendingTodoItem 待办事项
+type PendingTodoItem struct {
+	Type    string `json:"type"` // submit_timetable | schedule_published | waiting_schedule
+	Title   string `json:"title"`
+	Message string `json:"message"`
 }

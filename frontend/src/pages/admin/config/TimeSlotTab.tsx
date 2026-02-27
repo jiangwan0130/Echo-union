@@ -15,8 +15,7 @@ export default function TimeSlotTab() {
   const fetchSemesters = useCallback(async () => {
     try {
       const { data } = await semesterApi.list();
-      const raw = data.data;
-      const list = Array.isArray(raw) ? raw : (raw as unknown as { list: SemesterInfo[] }).list ?? [];
+      const list = data.data as SemesterInfo[];
       setSemesters(list);
       const active = list.find((s) => s.is_active);
       if (active) setSelectedSemesterId(active.id);
@@ -31,8 +30,7 @@ export default function TimeSlotTab() {
     setLoading(true);
     try {
       const { data } = await timeSlotApi.list({ semester_id: selectedSemesterId });
-      const raw = data.data;
-      setTimeSlots(Array.isArray(raw) ? raw : (raw as unknown as { list: TimeSlotInfo[] }).list ?? []);
+      setTimeSlots(data.data as TimeSlotInfo[]);
     } catch {
       message.error('获取时间段列表失败');
     } finally {

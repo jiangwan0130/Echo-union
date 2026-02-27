@@ -59,6 +59,35 @@ func (c *Client) IsBlacklisted(ctx context.Context, jti string) (bool, error) {
 	return n > 0, nil
 }
 
+// rateLimitScript 原子化限流 Lua 脚本：INCR + 首次设置 EXPIRE
+// 避免 INCR 与 EXPIRE 分离执行的竞态条件（EXPIRE 失败导致 key 永不过期）
+var rateLimitScript = goredis.NewScript(`
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+    redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+return current
+`)
+
+// CheckRateLimit 基于 Redis Lua 脚本的原子速率限制
+// 返回 true 表示允许请求，false 表示超限
+func (c *Client) CheckRateLimit(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
+	windowSec := int(window.Seconds())
+	if windowSec <= 0 {
+		windowSec = 1
+	}
+	result, err := rateLimitScript.Run(ctx, c.rdb, []string{key}, windowSec).Int64()
+	if err != nil {
+		return false, err
+	}
+	return result <= int64(limit), nil
+}
+
+// Ping 检查 Redis 连接是否正常
+func (c *Client) Ping(ctx context.Context) error {
+	return c.rdb.Ping(ctx).Err()
+}
+
 // Close 关闭 Redis 连接
 func (c *Client) Close() error {
 	return c.rdb.Close()

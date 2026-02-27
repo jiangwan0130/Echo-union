@@ -70,7 +70,7 @@ export default function PreCheckPanel({
 
       // 时间表提交进度
       if (progressRes.status === 'fulfilled') {
-        const progress = progressRes.value.data.data as TimetableProgressResponse;
+        const progress = (progressRes.value as { data: { data: TimetableProgressResponse } }).data.data;
         if (progress.total === 0) {
           results.push({
             label: '值班人员已确定',
@@ -106,7 +106,7 @@ export default function PreCheckPanel({
 
       // 排班规则
       if (rulesRes.status === 'fulfilled') {
-        const ruleList = rulesRes.value.data.data as ScheduleRuleInfo[];
+        const ruleList = (rulesRes.value as { data: { data: ScheduleRuleInfo[] } }).data.data;
         setRules(ruleList);
         results.push({
           label: `排班规则已配置 (${ruleList.filter((r) => r.is_enabled).length}条启用)`,

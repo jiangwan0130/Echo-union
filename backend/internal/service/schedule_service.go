@@ -28,6 +28,7 @@ var (
 	ErrNoEligibleMembers        = errors.New("无符合条件的排班候选人")
 	ErrNoActiveTimeSlots        = errors.New("无可用时间段")
 	ErrCandidateNotAvailable    = errors.New("候选人在该时段不可用")
+	ErrPhaseNotScheduling       = errors.New("学期阶段必须为 scheduling 才能执行自动排班")
 )
 
 // ScheduleService 排班业务接口
@@ -37,7 +38,7 @@ type ScheduleService interface {
 	// 获取排班表（含明细）
 	GetSchedule(ctx context.Context, semesterID string) (*dto.ScheduleResponse, error)
 	// 获取我的排班
-	GetMySchedule(ctx context.Context, semesterID, userID string) ([]dto.ScheduleItemResponse, error)
+	GetMySchedule(ctx context.Context, semesterID, userID string) (*dto.ScheduleResponse, error)
 	// 手动调整排班项（草稿状态）
 	UpdateItem(ctx context.Context, itemID string, req *dto.UpdateScheduleItemRequest, callerID string) (*dto.ScheduleItemResponse, error)
 	// 校验候选人
@@ -81,7 +82,12 @@ func (s *scheduleService) AutoSchedule(ctx context.Context, req *dto.AutoSchedul
 		return nil, err
 	}
 
-	// 0.1 检查是否已有非归档排班表 → 如有则在写入阶段归档
+	// 0.1 校验学期 Phase 必须为 scheduling
+	if semester.Phase != model.SemesterPhaseScheduling {
+		return nil, ErrPhaseNotScheduling
+	}
+
+	// 0.2 检查是否已有非归档排班表 → 如有则在写入阶段归档
 	existing, err := s.repo.Schedule.GetBySemester(ctx, semesterID)
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		s.logger.Error("查询已有排班表失败", zap.Error(err))
@@ -495,7 +501,7 @@ func (s *scheduleService) GetSchedule(ctx context.Context, semesterID string) (*
 // GetMySchedule — 获取我的排班
 // ════════════════════════════════════════════════════════════
 
-func (s *scheduleService) GetMySchedule(ctx context.Context, semesterID, userID string) ([]dto.ScheduleItemResponse, error) {
+func (s *scheduleService) GetMySchedule(ctx context.Context, semesterID, userID string) (*dto.ScheduleResponse, error) {
 	schedule, err := s.repo.Schedule.GetBySemester(ctx, semesterID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -511,11 +517,31 @@ func (s *scheduleService) GetMySchedule(ctx context.Context, semesterID, userID 
 		return nil, err
 	}
 
-	result := make([]dto.ScheduleItemResponse, 0, len(items))
-	for i := range items {
-		result = append(result, s.toScheduleItemResponse(&items[i]))
+	resp := &dto.ScheduleResponse{
+		ID:         schedule.ScheduleID,
+		SemesterID: schedule.SemesterID,
+		Status:     schedule.Status,
+		CreatedAt:  schedule.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		UpdatedAt:  schedule.UpdatedAt.Format("2006-01-02T15:04:05Z"),
 	}
-	return result, nil
+
+	if schedule.PublishedAt != nil {
+		t := schedule.PublishedAt.Format("2006-01-02T15:04:05Z")
+		resp.PublishedAt = &t
+	}
+
+	if schedule.Semester != nil {
+		resp.Semester = &dto.SemesterBrief{
+			ID:   schedule.Semester.SemesterID,
+			Name: schedule.Semester.Name,
+		}
+	}
+
+	resp.Items = make([]dto.ScheduleItemResponse, 0, len(items))
+	for i := range items {
+		resp.Items = append(resp.Items, s.toScheduleItemResponse(&items[i]))
+	}
+	return resp, nil
 }
 
 // ════════════════════════════════════════════════════════════
@@ -664,6 +690,17 @@ func (s *scheduleService) Publish(ctx context.Context, req *dto.PublishScheduleR
 	if err := s.repo.Schedule.Update(ctx, schedule); err != nil {
 		s.logger.Error("发布排班表失败", zap.Error(err))
 		return nil, err
+	}
+
+	// 发布成功后自动将学期 Phase 推进到 published
+	semester, semErr := s.repo.Semester.GetByID(ctx, schedule.SemesterID)
+	if semErr == nil && semester.Phase == model.SemesterPhaseScheduling {
+		semester.Phase = model.SemesterPhasePublished
+		semester.UpdatedBy = &callerID
+		if updateErr := s.repo.Semester.Update(ctx, semester); updateErr != nil {
+			s.logger.Warn("发布后自动推进学期 Phase 失败", zap.Error(updateErr))
+			// 非致命错误，排班表已发布成功，Phase 推进失败不回滚
+		}
 	}
 
 	return s.buildScheduleResponse(ctx, schedule)

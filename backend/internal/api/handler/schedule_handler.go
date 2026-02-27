@@ -75,13 +75,13 @@ func (h *ScheduleHandler) GetMySchedule(c *gin.Context) {
 		return
 	}
 
-	items, err := h.scheduleSvc.GetMySchedule(c.Request.Context(), semesterID, userID)
+	schedule, err := h.scheduleSvc.GetMySchedule(c.Request.Context(), semesterID, userID)
 	if err != nil {
 		h.handleScheduleError(c, err)
 		return
 	}
 
-	response.OK(c, gin.H{"list": items})
+	response.OK(c, schedule)
 }
 
 // UpdateItem 手动调整排班项
@@ -268,6 +268,8 @@ func (h *ScheduleHandler) handleScheduleError(c *gin.Context, err error) {
 		response.BadRequest(c, 13110, "候选人在该时段不可用")
 	case errors.Is(err, service.ErrSemesterNotFound):
 		response.NotFound(c, 13111, "学期不存在")
+	case errors.Is(err, service.ErrPhaseNotScheduling):
+		response.BadRequest(c, 13112, "学期阶段必须为 scheduling 才能执行自动排班")
 	default:
 		response.InternalError(c)
 	}

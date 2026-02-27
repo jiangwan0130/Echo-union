@@ -1082,6 +1082,9 @@ Authorization: Bearer <access_token>
 | 13108 | 无符合条件的排班候选人 |
 | 13109 | 无可用时间段 |
 | 13111 | 学期不存在 |
+| 13112 | 学期阶段必须为 scheduling 才能执行自动排班 |
+
+> **前置条件（Phase 校验）**：`semester.phase` 必须为 `scheduling`，否则返回错误码 13112。管理员需先通过 `PUT /semesters/:id/phase` 将学期推进到 scheduling 阶段。
 
 ---
 
@@ -1234,6 +1237,8 @@ Authorization: Bearer <access_token>
 
 **响应**: 返回更新后的 `ScheduleResponse`
 
+> **副作用（Phase 自动推进）**：发布成功后，后端自动将 `semester.phase` 从 `scheduling` 推进到 `published`。无需额外调用 `PUT /semesters/:id/phase`。
+
 **错误码：**
 
 | 错误码 | 说明 |
@@ -1385,7 +1390,8 @@ Authorization: Bearer <access_token>
 | end_date | string | 结束日期 |
 | first_week_type | string | 首周类型 |
 | is_active | boolean | 是否激活 |
-| status | string | 状态 |
+| status | string | 状态（active/archived） |
+| phase | string | 排班流程阶段（configuring/collecting/scheduling/published） |
 | created_at | string | 创建时间 |
 | updated_at | string | 更新时间 |
 
@@ -1451,6 +1457,154 @@ Authorization: Bearer <access_token>
 | 错误码 | 说明 |
 |--------|------|
 | 14001 | 学期不存在 |
+
+---
+
+### 8.8 检查阶段完成条件
+
+**接口路径**: `GET /api/v1/semesters/:id/phase-check`
+
+**权限要求**: admin
+
+**响应示例：**
+
+```json
+{
+  "code": 0,
+  "data": {
+    "current_phase": "configuring",
+    "can_advance": false,
+    "checks": [
+      { "label": "时间段配置", "passed": true },
+      { "label": "地点配置", "passed": false, "message": "至少需要配置1个地点" },
+      { "label": "值班人员", "passed": false, "message": "至少需要选定1名值班人员" }
+    ]
+  }
+}
+```
+
+**各阶段检查条件：**
+
+| 当前阶段 | 前进至 | 检查项 |
+|---------|--------|--------|
+| configuring | collecting | ≥1个时间段、≥1个地点、≥1名值班人员（duty_required=true） |
+| collecting | scheduling | 所有需值班成员已提交时间表（提交率=100%） |
+| scheduling | published | 排班表已生成（schedules.status = draft） |
+| published | — | 已是终态，can_advance=false |
+
+**错误码：**
+
+| 错误码 | 说明 |
+|--------|------|
+| 14001 | 学期不存在 |
+
+---
+
+### 8.9 推进/回退学期阶段
+
+**接口路径**: `PUT /api/v1/semesters/:id/phase`
+
+**权限要求**: admin
+
+**请求参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| target_phase | string | 是 | 目标阶段（configuring/collecting/scheduling/published） |
+
+**业务规则：**
+- **前进**：只允许 +1 步，且前置条件必须全部满足（详见 §8.8）
+- **回退**：任意阶段可回退到前序阶段，不清除已有数据（时间表、排班表均保留）
+- **自动前进**：`POST /schedules/publish` 成功后，系统自动将 `phase` 推进到 `published`（无需手动调用本接口）
+
+**错误码：**
+
+| 错误码 | 说明 |
+|--------|------|
+| 14001 | 学期不存在 |
+| 14004 | 阶段推进失败：前置条件未满足 |
+| 14005 | 无效的阶段跳转（如跳过中间阶段） |
+
+---
+
+### 8.10 获取学期值班人员
+
+**接口路径**: `GET /api/v1/semesters/:id/duty-members`
+
+**权限要求**: admin / leader
+
+**响应**: 返回 `DutyMemberItem[]`，字段如下：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| user_id | string | 用户ID |
+| name | string | 姓名 |
+| student_id | string | 学号 |
+| department_id | string | 部门ID |
+| department_name | string | 部门名称 |
+| duty_required | boolean | 是否被选定为本学期值班人员 |
+
+> **说明**: 基于 `user_semester_assignments` 表，`duty_required=true` 的用户为本学期值班人员池。替代原来分散在部门接口下的 SetDutyMembers。
+
+---
+
+### 8.11 设置学期值班人员
+
+**接口路径**: `PUT /api/v1/semesters/:id/duty-members`
+
+**权限要求**: admin
+
+**请求参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| user_ids | string[] | 是 | 选定为值班人员的用户ID列表（全量覆盖） |
+
+**业务规则：**
+- 幂等操作：先将本学期所有用户 `duty_required` 设为 false，再将 `user_ids` 中的用户置为 true
+- 不清除已提交的时间表数据（即使用户被移出值班池）
+
+**错误码：**
+
+| 错误码 | 说明 |
+|--------|------|
+| 14001 | 学期不存在 |
+
+---
+
+### 8.12 获取当前用户待办事项
+
+**接口路径**: `GET /api/v1/notifications/pending`
+
+**权限要求**: 需要认证
+
+**说明**: 一期轻量实现，基于当前学期 Phase + 用户 duty_required + 时间表状态实时计算，无独立通知表，前端进入工作台时拉取一次（不做实时推送）。
+
+**响应示例：**
+
+```json
+{
+  "code": 0,
+  "data": {
+    "list": [
+      {
+        "type": "submit_timetable",
+        "title": "提交时间表",
+        "message": "请导入课表并标记不可用时间后提交"
+      }
+    ]
+  }
+}
+```
+
+**待办类型说明：**
+
+| type | 触发条件 | 说明 |
+|------|---------|------|
+| submit_timetable | Phase=collecting + duty_required=true + 未提交 | 需要提交时间表 |
+| timetable_submitted | Phase=collecting + duty_required=true + 已提交 | 等待其他成员提交 |
+| waiting_schedule | Phase=scheduling | 排班进行中 |
+| schedule_published | Phase=published | 排班已发布，可查看 |
 
 ---
 
@@ -1911,6 +2065,11 @@ Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
 | PUT | /api/v1/semesters/:id | admin | 更新学期 |
 | PUT | /api/v1/semesters/:id/activate | admin | 激活学期 |
 | DELETE | /api/v1/semesters/:id | admin | 删除学期 |
+| GET | /api/v1/semesters/:id/phase-check | admin | 检查阶段完成条件 |
+| PUT | /api/v1/semesters/:id/phase | admin | 推进/回退学期阶段 |
+| GET | /api/v1/semesters/:id/duty-members | admin/leader | 获取学期值班人员 |
+| PUT | /api/v1/semesters/:id/duty-members | admin | 设置学期值班人员 |
+| GET | /api/v1/notifications/pending | 认证 | 获取当前用户待办事项 |
 | **TimeSlot** | | | |
 | GET | /api/v1/time-slots | 认证 | 时间段列表 |
 | GET | /api/v1/time-slots/:id | 认证 | 时间段详情 |

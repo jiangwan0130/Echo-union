@@ -167,7 +167,120 @@ func (h *SemesterHandler) handleSemesterError(c *gin.Context, err error) {
 		response.BadRequest(c, 14002, "学期日期无效")
 	case errors.Is(err, service.ErrSemesterDateOverlap):
 		response.BadRequest(c, 14003, "学期日期与已有学期重叠")
+	case errors.Is(err, service.ErrPhaseAdvanceInvalid):
+		response.BadRequest(c, 14004, "阶段推进失败：前置条件未满足")
+	case errors.Is(err, service.ErrPhaseTransInvalid):
+		response.BadRequest(c, 14005, "无效的阶段跳转")
 	default:
 		response.InternalError(c)
 	}
+}
+
+// CheckPhase 检查当前阶段完成条件
+// GET /api/v1/semesters/:id/phase-check
+func (h *SemesterHandler) CheckPhase(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		response.BadRequest(c, 10001, "学期ID不能为空")
+		return
+	}
+
+	result, err := h.semesterSvc.CheckPhase(c.Request.Context(), id)
+	if err != nil {
+		h.handleSemesterError(c, err)
+		return
+	}
+
+	response.OK(c, result)
+}
+
+// AdvancePhase 推进/回退学期阶段
+// PUT /api/v1/semesters/:id/phase
+func (h *SemesterHandler) AdvancePhase(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		response.BadRequest(c, 10001, "学期ID不能为空")
+		return
+	}
+
+	var req dto.AdvancePhaseRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, 10001, "参数校验失败")
+		return
+	}
+
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
+
+	if err := h.semesterSvc.AdvancePhase(c.Request.Context(), id, &req, callerID); err != nil {
+		h.handleSemesterError(c, err)
+		return
+	}
+
+	response.OK(c, nil)
+}
+
+// GetDutyMembers 获取学期值班人员
+// GET /api/v1/semesters/:id/duty-members
+func (h *SemesterHandler) GetDutyMembers(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		response.BadRequest(c, 10001, "学期ID不能为空")
+		return
+	}
+
+	members, err := h.semesterSvc.GetDutyMembers(c.Request.Context(), id)
+	if err != nil {
+		h.handleSemesterError(c, err)
+		return
+	}
+
+	response.OK(c, gin.H{"list": members})
+}
+
+// SetDutyMembers 设置学期值班人员
+// PUT /api/v1/semesters/:id/duty-members
+func (h *SemesterHandler) SetDutyMembers(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		response.BadRequest(c, 10001, "学期ID不能为空")
+		return
+	}
+
+	var req dto.DutyMembersRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, 10001, "参数校验失败")
+		return
+	}
+
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
+
+	if err := h.semesterSvc.SetDutyMembers(c.Request.Context(), id, &req, callerID); err != nil {
+		h.handleSemesterError(c, err)
+		return
+	}
+
+	response.OK(c, nil)
+}
+
+// GetPendingTodos 获取当前用户待办事项
+// GET /api/v1/notifications/pending
+func (h *SemesterHandler) GetPendingTodos(c *gin.Context) {
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
+
+	todos, err := h.semesterSvc.GetPendingTodos(c.Request.Context(), callerID)
+	if err != nil {
+		h.handleSemesterError(c, err)
+		return
+	}
+
+	response.OK(c, gin.H{"list": todos})
 }

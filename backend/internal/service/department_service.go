@@ -325,15 +325,38 @@ func (s *departmentService) SetDutyMembers(ctx context.Context, departmentID str
 		}
 	}
 
-	// 4. 先清除该部门下当前学期所有 duty_required
-	existingAssignments, err := s.repo.UserSemesterAssignment.ListByDepartmentAndSemester(ctx, departmentID, req.SemesterID)
+	// 4-5. 在事务中执行「清除旧标记 + 批量 upsert」，保证原子性
+	tx, err := s.repo.BeginTx(ctx)
 	if err != nil {
+		s.logger.Error("开启事务失败", zap.Error(err))
+		return nil, err
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if tx != nil {
+				tx.Rollback()
+			}
+			panic(r)
+		}
+	}()
+
+	txRepo := s.repo.WithTx(tx)
+
+	// 4. 先清除该部门下当前学期所有 duty_required
+	existingAssignments, err := txRepo.UserSemesterAssignment.ListByDepartmentAndSemester(ctx, departmentID, req.SemesterID)
+	if err != nil {
+		if tx != nil {
+			tx.Rollback()
+		}
 		s.logger.Error("查询现有分配失败", zap.Error(err))
 		return nil, err
 	}
 	for _, a := range existingAssignments {
 		if a.DutyRequired {
-			if err := s.repo.UserSemesterAssignment.UpdateDutyRequired(ctx, a.AssignmentID, false, callerID); err != nil {
+			if err := txRepo.UserSemesterAssignment.UpdateDutyRequired(ctx, a.AssignmentID, false, callerID); err != nil {
+				if tx != nil {
+					tx.Rollback()
+				}
 				s.logger.Error("清除值班标记失败", zap.Error(err))
 				return nil, err
 			}
@@ -341,9 +364,19 @@ func (s *departmentService) SetDutyMembers(ctx context.Context, departmentID str
 	}
 
 	// 5. 批量 upsert 传入的 user_ids
-	if err := s.repo.UserSemesterAssignment.BatchUpsert(ctx, req.SemesterID, req.UserIDs, true, callerID); err != nil {
+	if err := txRepo.UserSemesterAssignment.BatchUpsert(ctx, req.SemesterID, req.UserIDs, true, callerID); err != nil {
+		if tx != nil {
+			tx.Rollback()
+		}
 		s.logger.Error("设置值班人员失败", zap.Error(err))
 		return nil, err
+	}
+
+	if tx != nil {
+		if err := tx.Commit().Error; err != nil {
+			s.logger.Error("提交事务失败", zap.Error(err))
+			return nil, err
+		}
 	}
 
 	return &dto.SetDutyMembersResponse{

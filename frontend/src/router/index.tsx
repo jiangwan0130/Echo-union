@@ -6,23 +6,8 @@ import AuthGuard from '@/components/auth/AuthGuard';
 
 // ── 懒加载页面 ──
 const LoginPage = lazy(() => import('@/pages/login/LoginPage'));
-const DashboardPage = lazy(() => import('@/pages/dashboard/DashboardPage'));
-const TimetablePage = lazy(() => import('@/pages/timetable/TimetablePage'));
-const SchedulePage = lazy(() => import('@/pages/schedule/SchedulePage'));
-const AutoSchedulePage = lazy(
-  () => import('@/pages/schedule/AutoSchedulePage'),
-);
-const AdjustSchedulePage = lazy(
-  () => import('@/pages/schedule/AdjustSchedulePage'),
-);
+const WorkbenchPage = lazy(() => import('@/pages/workbench/WorkbenchPage'));
 const UsersPage = lazy(() => import('@/pages/admin/users/UsersPage'));
-const DepartmentsPage = lazy(
-  () => import('@/pages/admin/departments/DepartmentsPage'),
-);
-const ConfigPage = lazy(() => import('@/pages/admin/config/ConfigPage'));
-const ProgressPage = lazy(
-  () => import('@/pages/admin/progress/ProgressPage'),
-);
 const ProfilePage = lazy(() => import('@/pages/profile/ProfilePage'));
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'));
 const ForbiddenPage = lazy(() => import('@/pages/ForbiddenPage'));
@@ -64,21 +49,22 @@ export const router = createBrowserRouter([
       </AuthGuard>
     ),
     children: [
-      { index: true, element: <Navigate to="/dashboard" replace /> },
       {
-        path: 'dashboard',
+        index: true,
         element: (
           <LazyLoad>
-            <DashboardPage />
+            <WorkbenchPage />
           </LazyLoad>
         ),
       },
       {
-        path: 'schedule',
+        path: 'users',
         element: (
-          <LazyLoad>
-            <SchedulePage />
-          </LazyLoad>
+          <AuthGuard roles={['admin']}>
+            <LazyLoad>
+              <UsersPage />
+            </LazyLoad>
+          </AuthGuard>
         ),
       },
       {
@@ -89,76 +75,16 @@ export const router = createBrowserRouter([
           </LazyLoad>
         ),
       },
-      {
-        path: 'timetable',
-        element: (
-          <AuthGuard roles={['member']}>
-            <LazyLoad>
-              <TimetablePage />
-            </LazyLoad>
-          </AuthGuard>
-        ),
-      },
-      {
-        path: 'schedule/auto',
-        element: (
-          <AuthGuard roles={['admin']}>
-            <LazyLoad>
-              <AutoSchedulePage />
-            </LazyLoad>
-          </AuthGuard>
-        ),
-      },
-      {
-        path: 'schedule/adjust',
-        element: (
-          <AuthGuard roles={['admin']}>
-            <LazyLoad>
-              <AdjustSchedulePage />
-            </LazyLoad>
-          </AuthGuard>
-        ),
-      },
-      {
-        path: 'admin/users',
-        element: (
-          <AuthGuard roles={['admin']}>
-            <LazyLoad>
-              <UsersPage />
-            </LazyLoad>
-          </AuthGuard>
-        ),
-      },
-      {
-        path: 'admin/departments',
-        element: (
-          <AuthGuard roles={['admin', 'leader']}>
-            <LazyLoad>
-              <DepartmentsPage />
-            </LazyLoad>
-          </AuthGuard>
-        ),
-      },
-      {
-        path: 'admin/config',
-        element: (
-          <AuthGuard roles={['admin']}>
-            <LazyLoad>
-              <ConfigPage />
-            </LazyLoad>
-          </AuthGuard>
-        ),
-      },
-      {
-        path: 'admin/progress',
-        element: (
-          <AuthGuard roles={['admin', 'leader']}>
-            <LazyLoad>
-              <ProgressPage />
-            </LazyLoad>
-          </AuthGuard>
-        ),
-      },
+      // ── 旧路由重定向到工作台 ──
+      { path: 'dashboard', element: <Navigate to="/" replace /> },
+      { path: 'schedule', element: <Navigate to="/" replace /> },
+      { path: 'schedule/auto', element: <Navigate to="/" replace /> },
+      { path: 'schedule/adjust', element: <Navigate to="/" replace /> },
+      { path: 'timetable', element: <Navigate to="/" replace /> },
+      { path: 'admin/config', element: <Navigate to="/" replace /> },
+      { path: 'admin/departments', element: <Navigate to="/users" replace /> },
+      { path: 'admin/progress', element: <Navigate to="/" replace /> },
+      { path: 'admin/users', element: <Navigate to="/users" replace /> },
     ],
   },
   {

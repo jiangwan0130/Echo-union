@@ -8,7 +8,7 @@
 -- │  初始化脚本设计决策记录  (2026-02-24)                   │
 -- ├─────┬───────────────────────────────────────────────────┤
 -- │ Q1  │ B — 不插入任何默认部门数据，由运行时管理后台创建  │
--- │ Q2  │ A — 不创建初始管理员，由部署脚本/管理后台处理       │
+-- │ Q2  │ B — 创建3个示例用户(admin/leader/member)便于测试  │
 -- │ Q3  │ A — 不创建 deleted_at IS NOT NULL 回收站索引，     │
 -- │     │     后续按需 CREATE INDEX CONCURRENTLY 添加        │
 -- │ Q4  │ A — 创建 §5.2.2 两个待评估索引（宽索引策略起步）  │
@@ -131,6 +131,7 @@ CREATE TABLE semesters (
     first_week_type VARCHAR(10)   NOT NULL,
     is_active       BOOLEAN       NOT NULL DEFAULT FALSE,
     status          VARCHAR(20)   NOT NULL DEFAULT 'active',
+    phase           VARCHAR(20)   NOT NULL DEFAULT 'configuring',
     created_at      TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_by      UUID,
     updated_at      TIMESTAMPTZ   NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -143,6 +144,8 @@ CREATE TABLE semesters (
         CHECK (first_week_type IN ('odd', 'even')),
     CONSTRAINT ck_semesters_status
         CHECK (status IN ('active', 'archived')),
+    CONSTRAINT ck_semesters_phase
+        CHECK (phase IN ('configuring', 'collecting', 'scheduling', 'published')),
     CONSTRAINT ck_semesters_dates
         CHECK (end_date > start_date),
     CONSTRAINT ck_semesters_soft_delete
@@ -863,10 +866,10 @@ CREATE INDEX idx_notifications_created_at
     WHERE deleted_at IS NULL;
 
 -- ============================================================
--- 20. invite_codes（邀请码表）
+-- 20. invite_codes（邀请码表） -- DEPRECATED: 邀请码功能已废弃，改为批量导入用户。保留 DDL 以兼容已有数据库。
 -- ============================================================
 
-CREATE TABLE invite_codes (
+CREATE TABLE IF NOT EXISTS invite_codes (
     invite_code_id UUID          PRIMARY KEY DEFAULT gen_random_uuid(),
     code           VARCHAR(50)   NOT NULL,
     created_by     UUID          NOT NULL,
@@ -924,6 +927,24 @@ INSERT INTO schedule_rules (rule_code, rule_name, description, is_enabled, is_co
     ('R3', '同日部门不重复',   '同一天的不同时段不能有来自同一部门的人',      TRUE, TRUE),
     ('R4', '相邻班次部门不重复', '相邻两个时段不能来自同一部门',              TRUE, TRUE),
     ('R5', '单双周早八不重复', '单周和双周的早八不能是同一人',                TRUE, TRUE);
+
+-- 21.4 示例部门 & 用户（开发/测试用）
+-- 密码统一为 admin123，bcrypt hash (cost=10)
+-- 首次登录 must_change_password = FALSE 方便测试
+DO $$
+DECLARE
+    v_dept_id UUID;
+BEGIN
+    INSERT INTO departments (name, description)
+    VALUES ('秘书部', '系统管理部门（测试用）')
+    RETURNING department_id INTO v_dept_id;
+
+    INSERT INTO users (name, student_id, email, password_hash, role, department_id, must_change_password) VALUES
+        ('管理员',   'admin',  'admin@test.local',  '$2a$10$c1OxSFUN788/AbB0jbJJp.B9RNTZ.0r550GXjzHDK/yE9a/zFXg.y', 'admin',  v_dept_id, FALSE),
+        ('负责人',   'leader', 'leader@test.local', '$2a$10$c1OxSFUN788/AbB0jbJJp.B9RNTZ.0r550GXjzHDK/yE9a/zFXg.y', 'leader', v_dept_id, FALSE),
+        ('普通成员', 'member', 'member@test.local', '$2a$10$c1OxSFUN788/AbB0jbJJp.B9RNTZ.0r550GXjzHDK/yE9a/zFXg.y', 'member', v_dept_id, FALSE);
+END;
+$$;
 
 -- 21.4 默认时间段（全局默认，semester_id = NULL）
 -- 周一至周四 (day_of_week=1~4) 每天4个时段

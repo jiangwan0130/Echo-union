@@ -1,8 +1,11 @@
 package router
 
 import (
+	"time"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 
 	"echo-union/backend/config"
 	"echo-union/backend/internal/api/handler"
@@ -12,19 +15,59 @@ import (
 )
 
 // Setup 初始化并返回 Gin 路由引擎
-func Setup(cfg *config.Config, h *handler.Handler, jwtMgr *jwt.Manager, rdb *redis.Client, logger *zap.Logger) *gin.Engine {
+func Setup(cfg *config.Config, h *handler.Handler, jwtMgr *jwt.Manager, rdb *redis.Client, db *gorm.DB, logger *zap.Logger) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	r := gin.New()
 
 	// ── 全局中间件 ──
 	r.Use(gin.Recovery())
+	r.Use(middleware.RequestID())
+	r.Use(middleware.SecurityHeaders())
 	r.Use(middleware.Logger(logger))
 	r.Use(middleware.CORS(cfg.Server.CORS.AllowOrigins))
+	r.Use(middleware.BodyLimit(1 << 20)) // 全局 1MB 请求体限制
 
 	// ── 健康检查 ──
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok"})
+		status := "ok"
+		components := gin.H{}
+
+		// 检查数据库
+		if sqlDB, err := db.DB(); err != nil {
+			status = "error"
+			components["database"] = "error"
+		} else if err := sqlDB.Ping(); err != nil {
+			status = "error"
+			components["database"] = "error"
+		} else {
+			components["database"] = "ok"
+		}
+
+		// 检查 Redis
+		if rdb == nil {
+			if status != "error" {
+				status = "degraded"
+			}
+			components["redis"] = "unavailable"
+		} else if err := rdb.Ping(c.Request.Context()); err != nil {
+			if status != "error" {
+				status = "degraded"
+			}
+			components["redis"] = "error"
+		} else {
+			components["redis"] = "ok"
+		}
+
+		httpStatus := 200
+		if status == "error" {
+			httpStatus = 503
+		}
+
+		c.JSON(httpStatus, gin.H{
+			"status":     status,
+			"components": components,
+		})
 	})
 
 	// ── API v1 ──
@@ -33,8 +76,8 @@ func Setup(cfg *config.Config, h *handler.Handler, jwtMgr *jwt.Manager, rdb *red
 		// 认证模块（无需认证）
 		auth := v1.Group("/auth")
 		{
-			auth.POST("/login", h.Auth.Login)
-			auth.POST("/refresh", h.Auth.RefreshToken)
+			auth.POST("/login", middleware.RateLimit(rdb, 10, time.Minute), h.Auth.Login)
+			auth.POST("/refresh", middleware.RateLimit(rdb, 20, time.Minute), h.Auth.RefreshToken)
 		}
 
 		// 需要认证的路由
@@ -50,6 +93,7 @@ func Setup(cfg *config.Config, h *handler.Handler, jwtMgr *jwt.Manager, rdb *red
 			users := authorized.Group("/users")
 			{
 				users.GET("/me", h.User.GetCurrentUser)
+				users.POST("", middleware.RoleAuth("admin"), h.User.CreateUser)
 				users.GET("", middleware.RoleAuth("admin", "leader"), h.User.ListUsers)
 				users.GET("/:id", middleware.RoleAuth("admin", "leader"), h.User.GetUser)
 				users.PUT("/:id", h.User.UpdateUser) // admin 或本人（Service 层鉴权）
@@ -81,7 +125,16 @@ func Setup(cfg *config.Config, h *handler.Handler, jwtMgr *jwt.Manager, rdb *red
 				semesters.PUT("/:id", middleware.RoleAuth("admin"), h.Semester.UpdateSemester)
 				semesters.PUT("/:id/activate", middleware.RoleAuth("admin"), h.Semester.ActivateSemester)
 				semesters.DELETE("/:id", middleware.RoleAuth("admin"), h.Semester.DeleteSemester)
+				// 阶段推进 API
+				semesters.GET("/:id/phase-check", middleware.RoleAuth("admin"), h.Semester.CheckPhase)
+				semesters.PUT("/:id/phase", middleware.RoleAuth("admin"), h.Semester.AdvancePhase)
+				// 值班人员管理（学期维度）
+				semesters.GET("/:id/duty-members", middleware.RoleAuth("admin", "leader"), h.Semester.GetDutyMembers)
+				semesters.PUT("/:id/duty-members", middleware.RoleAuth("admin"), h.Semester.SetDutyMembers)
 			}
+
+			// 待办通知
+			authorized.GET("/notifications/pending", h.Semester.GetPendingTodos)
 
 			// 时间段模块
 			timeSlots := authorized.Group("/time-slots")

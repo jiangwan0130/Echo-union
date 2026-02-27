@@ -50,6 +50,9 @@ func Created(c *gin.Context, data interface{}) {
 
 // OKPage 200 分页成功
 func OKPage(c *gin.Context, list interface{}, total int64, page, pageSize int) {
+	if pageSize <= 0 {
+		pageSize = 20 // 防止除零，使用默认分页大小
+	}
 	totalPages := int(total) / pageSize
 	if int(total)%pageSize > 0 {
 		totalPages++

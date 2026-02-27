@@ -5,6 +5,8 @@ import type {
   UserInfo,
   UserDetail,
   UserListParams,
+  CreateUserRequest,
+  CreateUserResponse,
   UpdateUserRequest,
   AssignRoleRequest,
   ResetPasswordResponse,
@@ -13,6 +15,9 @@ import type {
 
 export const userApi = {
   getCurrentUser: () => api.get<ApiResponse<UserDetail>>('/users/me'),
+
+  createUser: (data: CreateUserRequest) =>
+    api.post<ApiResponse<CreateUserResponse>>('/users', data),
 
   getUser: (id: string) => api.get<ApiResponse<UserDetail>>(`/users/${id}`),
 

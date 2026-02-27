@@ -25,8 +25,7 @@ export default function ScheduleRuleTab() {
     setLoading(true);
     try {
       const { data } = await scheduleRuleApi.list();
-      const raw = data.data;
-      setRules(Array.isArray(raw) ? raw : (raw as unknown as { list: ScheduleRuleInfo[] }).list ?? []);
+      setRules(data.data as ScheduleRuleInfo[]);
     } catch {
       message.error('获取排班规则失败');
     } finally {

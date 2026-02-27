@@ -297,6 +297,7 @@
 | first_week_type | VARCHAR(10) | NOT NULL | | 首周类型：odd/even |
 | is_active | BOOLEAN | NOT NULL | FALSE | 是否为当前学期 |
 | status | VARCHAR(20) | NOT NULL | 'active' | 状态：active/archived |
+| phase | VARCHAR(20) | NOT NULL | 'configuring' | 排班流程阶段：configuring/collecting/scheduling/published |
 | created_at | TIMESTAMPTZ | NOT NULL | CURRENT_TIMESTAMP | 创建时间 |
 | created_by | UUID | | NULL | 创建人ID |
 | updated_at | TIMESTAMPTZ | NOT NULL | CURRENT_TIMESTAMP | 更新时间 |
@@ -308,12 +309,35 @@
 **字段枚举值：**
 - `first_week_type`: odd(单周), even(双周)
 - `status`: active(活动), archived(已归档)
+- `phase`: configuring(系统配置中), collecting(收集时间表), scheduling(排班中), published(已发布)
 
 **CHECK约束：**
 - `first_week_type IN ('odd', 'even')`
 - `status IN ('active', 'archived')`
+- `phase IN ('configuring', 'collecting', 'scheduling', 'published')`
 - `end_date > start_date`
 - `(deleted_at IS NULL AND deleted_by IS NULL) OR (deleted_at IS NOT NULL AND deleted_by IS NOT NULL)` —— 软删除一致性
+
+**设计决策（v2）：**
+- `phase` 是排班全流程的唯一驱动字段。`schedules.status`（draft/published/archived）退化为排班表内部数据状态，不再驱动前端流程
+- 阶段可向前推进（+1步，满足前置条件），也可回退到任意前序阶段（不清除已有数据）
+- 激活学期时 `phase` 默认重置为 `configuring`
+- 发布排班表（`POST /schedules/publish`）成功后，后端自动将 `phase` 推进到 `published`
+
+**迁移规则（已有数据）：**
+```sql
+-- 新增 phase 列
+ALTER TABLE semesters ADD COLUMN IF NOT EXISTS phase VARCHAR(20) NOT NULL DEFAULT 'configuring';
+ALTER TABLE semesters ADD CONSTRAINT ck_semesters_phase CHECK (phase IN ('configuring', 'collecting', 'scheduling', 'published'));
+
+-- 迁移已有数据
+UPDATE semesters s SET phase = 'published'
+  WHERE EXISTS (SELECT 1 FROM schedules sc WHERE sc.semester_id = s.semester_id AND sc.status = 'published');
+
+UPDATE semesters s SET phase = 'scheduling'
+  WHERE phase = 'configuring'
+  AND EXISTS (SELECT 1 FROM schedules sc WHERE sc.semester_id = s.semester_id AND sc.status = 'draft');
+```
 
 **EXCLUDE约束：**
 - `EXCLUDE USING gist (daterange(start_date, end_date, '[]') WITH &&) WHERE (deleted_at IS NULL)` —— 防止学期日期范围重叠（需启用 `btree_gist` 扩展）

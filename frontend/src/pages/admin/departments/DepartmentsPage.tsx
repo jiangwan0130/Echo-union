@@ -77,8 +77,7 @@ export default function DepartmentsPage() {
     setLoading(true);
     try {
       const { data } = await departmentApi.list({ include_inactive: showInactive || undefined });
-      const raw = data.data;
-      setDepartments(Array.isArray(raw) ? raw : (raw as unknown as { list: DepartmentDetail[] }).list ?? []);
+      setDepartments(data.data as DepartmentDetail[]);
     } catch {
       message.error('获取部门列表失败');
     } finally {
@@ -90,8 +89,7 @@ export default function DepartmentsPage() {
   const fetchSemesters = useCallback(async () => {
     try {
       const { data } = await semesterApi.list();
-      const raw = data.data;
-      const list = Array.isArray(raw) ? raw : (raw as unknown as { list: SemesterInfo[] }).list ?? [];
+      const list = data.data as SemesterInfo[];
       setSemesters(list);
       const active = list.find((s) => s.is_active);
       if (active) setSelectedSemesterId(active.id);
@@ -184,8 +182,7 @@ export default function DepartmentsPage() {
     setMemberLoading(true);
     try {
       const { data } = await departmentApi.getMembers(deptId, semesterId || undefined);
-      const raw = data.data;
-      const list = Array.isArray(raw) ? raw : (raw as unknown as { list: DepartmentMember[] }).list ?? [];
+      const list = data.data as DepartmentMember[];
       setMembers(list);
       setSelectedMemberIds(list.filter((m) => m.duty_required).map((m) => m.user_id));
     } catch {

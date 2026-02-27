@@ -677,7 +677,70 @@ schedule/
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### 2.5.6 发布后修改流程
+#### 2.5.6 Semester Phase 状态机（排班流程主线）
+
+> **设计决策（v2）**：`Semester.phase` 是排班全流程的唯一驱动字段。`schedules.status`（draft/published/archived）退化为排班表内部数据状态，不再驱动前端流程。
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                        Semester Phase 状态机                                     │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│          激活学期                                                                │
+│   ──────────────────> ┌─────────────┐                                          │
+│                       │             │ ≥1时段 + ≥1地点 + ≥1人员                  │
+│                       │configuring  │ ──────────────────────────────>           │
+│                       │  (系统配置)  │                               │          │
+│                       └─────────────┘                               │          │
+│                              ▲                                       ▼          │
+│                              │                              ┌──────────────┐   │
+│                              │                              │  collecting  │   │
+│                              │   ◄── 回退（保留数据）────── │ (收集时间表) │   │
+│                              │                              └──────┬───────┘   │
+│                              │                                     │           │
+│                              │                              全员已提交          │
+│                              │                                     ▼           │
+│                              │                              ┌──────────────┐   │
+│                              │                              │  scheduling  │   │
+│                              │   ◄── 回退（保留数据）────── │   (排班中)   │   │
+│                              │                              └──────┬───────┘   │
+│                              │                                     │           │
+│                              │                              排班表已生成        │
+│                              │                           (POST /schedules/auto) │
+│                              │                                     ▼           │
+│                              │                              ┌──────────────┐   │
+│                              │                              │  published   │   │
+│                              │   ◄── 回退（保留数据）────── │  (已发布)    │   │
+│                              │                              └──────────────┘   │
+│                                                                                 │
+│  转换触发：                                                                     │
+│  - 前进由管理员在 AdminWorkbench Stepper 中点击"下一步"触发                      │
+│  - configuring→collecting：点击"激活排班"（Step2）                              │
+│  - collecting→scheduling：Step2→Step3（所有人提交后解锁）                       │
+│  - scheduling→published：POST /schedules/publish 成功后自动推进                 │
+│  - 回退：任意阶段可回退，PUT /semesters/:id/phase（target_phase=前序阶段）      │
+│                                                                                 │
+│  回退保留策略：                                                                  │
+│  - 回退到 configuring：已提交的时间表数据保留（互不影响）                        │
+│  - 回退到 collecting：排班表草稿保留（成员可继续修改时间表）                      │
+│  - 回退到 scheduling：排班表保留（可继续调整或重新排班）                          │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Phase 前进条件（`GET /semesters/:id/phase-check` 返回）：**
+
+| 当前 Phase | 前进至 | 检查项 |
+|------------|--------|--------|
+| configuring | collecting | ≥1 时间段 ∧ ≥1 地点 ∧ ≥1 值班人员 |
+| collecting | scheduling | 所有 duty_required 用户的 timetable_status = submitted |
+| scheduling | published | schedules 表存在该学期的记录（status = draft） |
+
+**AutoSchedule Phase 前置校验：**
+- `POST /schedules/auto` 要求 `semester.phase = scheduling`，否则返回错误码 13112
+- 排班发布（`POST /schedules/publish`）成功后，后端自动将 `semester.phase` 置为 `published`
+
+#### 2.5.7 发布后修改流程
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
@@ -1141,60 +1204,100 @@ export/
 
 ### 3.1 页面路由结构
 
+> **v2 重构**：去掉侧边栏，改为顶部导航；路由精简为工作台（角色分流）+ 用户管理 + 个人中心三个核心页面，旧路由全部重定向到 `/`。
+
 ```
-/                           # 重定向到工作台或登录
-/login                      # 登录页
-/register                   # 注册页（需邀请码）
-/dashboard                  # 工作台
-/timetable                  # 我的时间表
-/schedule                   # 排班概览
-/schedule/auto              # 自动排班（管理员）
-/schedule/adjust            # 手动调整（管理员）
-/swap                       # 换班管理
-/swap/:id                   # 换班详情
-/duty                       # 签到签退
-/duty/records               # 出勤记录
-/notification               # 通知中心
-/admin/users                # 用户管理（管理员）
-/admin/departments          # 部门管理（管理员）
-/admin/config               # 系统配置（管理员）
-/profile                    # 个人中心
+/                 → 工作台（角色分流：admin → AdminWorkbench; leader → LeaderWorkbench; member → MemberWorkbench）
+/users            → 用户管理页（仅 admin，含"成员列表 | 部门管理 | 学期管理" Tab）
+/profile          → 个人中心（所有角色）
+/login            → 登录页（公开）
+/403              → 权限错误页
+*                 → 404 页面
+
+──── 旧路由（全部 redirect 到 / 或对应新路由）────
+/dashboard        → redirect /
+/schedule         → redirect /
+/schedule/auto    → redirect /
+/schedule/adjust  → redirect /
+/timetable        → redirect /
+/admin/config     → redirect /
+/admin/departments → redirect /users
+/admin/progress   → redirect /
+/admin/users      → redirect /users
 ```
+
+**顶部导航栏（替代侧边栏）：**
+
+| 角色 | 导航项 |
+|------|--------|
+| admin | 工作台（/）、用户管理（/users） |
+| leader / member | 工作台（/） |
+| 全部 | 右侧头像下拉：个人中心（/profile）、退出登录 |
 
 ### 3.2 关键页面组件设计
 
-#### 3.2.1 工作台 (Dashboard)
+#### 3.2.1 工作台 (Workbench) — v2
+
+工作台按角色分流：`admin` → `AdminWorkbench`；`leader` → `LeaderWorkbench`；`member` → `MemberWorkbench`。
+
+**AdminWorkbench — 4步 Stepper 向导：**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────┐
-│ Dashboard 组件结构                                                               │
+│ AdminWorkbench 组件结构（Ant Design Steps, current 由 Semester.phase 驱动）      │
 ├─────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                 │
-│  <Dashboard>                                                                    │
-│    │                                                                            │
-│    ├── <TodayDutyCard>              # 今日值班卡片（成员）                        │
-│    │     ├── 值班时间/地点                                                      │
-│    │     ├── 签到状态                                                           │
-│    │     └── [签到]/[签退] 按钮                                                 │
-│    │                                                                            │
-│    ├── <TomorrowReminder>           # 明日提醒（成员）                           │
-│    │                                                                            │
-│    ├── <PendingSwaps>               # 待处理换班（成员）                         │
-│    │     └── 换班请求列表                                                       │
-│    │                                                                            │
-│    ├── <SubmitStatus>               # 时间表提交状态（成员）                      │
-│    │                                                                            │
-│    ├── <DeptProgress>               # 部门提交进度（部门负责人）                  │
-│    │     └── 进度条 + 未提交名单                                                │
-│    │                                                                            │
-│    ├── <GlobalProgress>             # 全局提交进度（管理员）                      │
-│    │     └── 按部门分组的进度                                                   │
-│    │                                                                            │
-│    ├── <PendingApprovals>           # 待审核事项（管理员）                        │
-│    │     └── 待审核换班列表                                                     │
-│    │                                                                            │
-│    └── <AbnormalDuties>             # 出勤异常（管理员）                          │
-│          └── 缺席/未签退列表                                                    │
+│  ┌── Stepper ──────────────────────────────────────────────────────────────┐   │
+│  │  [1. 系统配置]  →  [2. 收集时间表]  →  [3. 排班]  →  [4. 排班结果]    │   │
+│  └─────────────────────────────────────────────────────────────────────────┘   │
+│                                                                                 │
+│  Step 1 (configuring):                                                          │
+│    ├── <Tabs>: 时间段配置 | 地点配置 | 排班规则（复用现有子组件）               │
+│    └── 完成条件清单 + "下一步：选定人员" 按钮（条件不满足时 disabled + tooltip）  │
+│                                                                                 │
+│  Step 2 (collecting):                                                           │
+│    ├── <DutyMemberSelector>: 按部门分组 checkbox，支持部门全选                  │
+│    └── "激活排班" 按钮 → phase: configuring→collecting                          │
+│                                                                                 │
+│  Step 3 (scheduling) — 三种子视图按数据状态自动切换：                           │
+│    ├── 等待提交（提交率 < 100%）：进度条 + 成员状态列表（只读）                 │
+│    ├── 自动排班（提交率=100% 且无排班表）：PreCheckPanel + 开始自动排班          │
+│    └── 手动调整（排班表已生成 draft 状态）：ScheduleWeekGrid（可编辑） + 底部确认 │
+│                                                                                 │
+│  Step 4 (published):                                                            │
+│    ├── <ScheduleWeekGrid>（只读）+ <WeekSelector>                               │
+│    ├── [发布排班表] 按钮（在 scheduling 阶段点"确认排班"时自动触发）             │
+│    ├── [导出 Excel] 按钮                                                        │
+│    └── [返回调整] 按钮 → phase 回退到 scheduling                                │
+│                                                                                 │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**MemberWorkbench — 待办驱动：**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│ MemberWorkbench 组件结构                                                        │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  顶部待办卡片区（根据 Phase + 个人状态动态显示）：                               │
+│                                                                                 │
+│   Phase           个人状态        卡片内容                                      │
+│   ──────────────  ──────────────  ────────────────────────────────────────      │
+│   collecting      未提交           「请提交你的时间表」→ 展开内嵌时间表填写区      │
+│   collecting      已提交           「已提交，等待排班中」（静态）                 │
+│   scheduling      —               「排班进行中，请耐心等待」                     │
+│   published       —               「排班已发布」→ 点击滚动到排班视图             │
+│   无活跃学期      —               「暂无排班任务」                               │
+│                                                                                 │
+│  collecting + 未提交 时，下方内嵌：                                              │
+│    └── <TimetablePage>（时间表填写 + 提交按钮）                                 │
+│                                                                                 │
+│  published 时，下方展示：                                                       │
+│    └── <ScheduleWeekGrid>（只读，过滤当前用户）                                  │
+│                                                                                 │
+│  Leader 额外视图（collecting 阶段）：                                           │
+│    └── 「本部门提交进度」折叠面板：成员列表 + 提交状态标签                       │
 │                                                                                 │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```

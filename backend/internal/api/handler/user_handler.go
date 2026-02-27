@@ -21,6 +21,29 @@ func NewUserHandler(userSvc service.UserService) *UserHandler {
 	return &UserHandler{userSvc: userSvc}
 }
 
+// CreateUser 手动新增用户
+// POST /api/v1/users
+func (h *UserHandler) CreateUser(c *gin.Context) {
+	var req dto.CreateUserRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, 10001, "参数校验失败")
+		return
+	}
+
+	callerID, ok := MustGetUserID(c)
+	if !ok {
+		return
+	}
+
+	result, err := h.userSvc.CreateUser(c.Request.Context(), &req, callerID)
+	if err != nil {
+		h.handleUserError(c, err)
+		return
+	}
+
+	response.Created(c, result)
+}
+
 // GetCurrentUser 获取当前用户信息
 // GET /api/v1/users/me
 func (h *UserHandler) GetCurrentUser(c *gin.Context) {
@@ -253,6 +276,8 @@ func (h *UserHandler) handleUserError(c *gin.Context, err error) {
 		response.BadRequest(c, 12004, "邮箱已被使用")
 	case errors.Is(err, service.ErrDepartmentNotFound):
 		response.BadRequest(c, 12005, "部门不存在")
+	case errors.Is(err, service.ErrStudentIDExists):
+		response.BadRequest(c, 12006, "学号已被使用")
 	case errors.Is(err, service.ErrNoPermission):
 		response.Forbidden(c, 10003, "无权操作")
 	default:

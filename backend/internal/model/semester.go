@@ -11,6 +11,7 @@ type Semester struct {
 	FirstWeekType string    `gorm:"type:varchar(10);not null"                      json:"first_week_type"` // odd | even
 	IsActive      bool      `gorm:"not null;default:false"                         json:"is_active"`
 	Status        string    `gorm:"type:varchar(20);not null;default:'active'"     json:"status"` // active | archived
+	Phase         string    `gorm:"type:varchar(20);not null;default:'configuring'" json:"phase"` // configuring | collecting | scheduling | published
 	VersionedModel
 }
 

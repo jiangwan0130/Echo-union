@@ -40,3 +40,18 @@ type ImportUserError struct {
 	Row    int    `json:"row"`
 	Reason string `json:"reason"`
 }
+
+// CreateUserRequest 手动新增用户请求
+type CreateUserRequest struct {
+	Name         string `json:"name"          binding:"required,min=2,max=20"`
+	StudentID    string `json:"student_id"    binding:"required,min=1,max=20"`
+	Email        string `json:"email"         binding:"required,email"`
+	Role         string `json:"role"          binding:"required,oneof=admin leader member"`
+	DepartmentID string `json:"department_id" binding:"required,uuid"`
+}
+
+// CreateUserResponse 新增用户响应
+type CreateUserResponse struct {
+	User         *UserResponse `json:"user"`
+	TempPassword string        `json:"temp_password"`
+}

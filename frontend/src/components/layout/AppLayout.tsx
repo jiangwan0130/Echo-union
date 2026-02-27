@@ -1,21 +1,15 @@
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
-import { Layout, Menu, Dropdown, Avatar, Button, theme } from 'antd';
-import {
-  MenuFoldOutlined,
-  MenuUnfoldOutlined,
-  UserOutlined,
-  LogoutOutlined,
-} from '@ant-design/icons';
-import { useAuthStore, useAppStore } from '@/stores';
-import { menuItems } from '@/constants/menus';
+import { Layout, Menu, Dropdown, Avatar, theme } from 'antd';
+import { UserOutlined, LogoutOutlined } from '@ant-design/icons';
+import { useAuthStore } from '@/stores';
+import { menuItems, userDropdownItems } from '@/constants/menus';
 
-const { Header, Sider, Content } = Layout;
+const { Header, Content } = Layout;
 
 export default function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
-  const { sidebarCollapsed, setSidebarCollapsed } = useAppStore();
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();
@@ -31,33 +25,20 @@ export default function AppLayout() {
     key: item.key,
     icon: item.icon,
     label: item.label,
-    children: item.children
-      ?.filter(
-        (child) =>
-          child.roles.length === 0 ||
-          (user && child.roles.includes(user.role)),
-      )
-      .map((child) => ({
-        key: child.key,
-        label: child.label,
-      })),
   }));
 
-  // 根据 key 找到路径
-  const findPath = (key: string): string | undefined => {
-    for (const item of menuItems) {
-      if (item.key === key) return item.path;
-      if (item.children) {
-        const child = item.children.find((c) => c.key === key);
-        if (child) return child.path;
-      }
-    }
-    return undefined;
-  };
+  // 计算选中的菜单 key
+  const selectedKeys = (() => {
+    const pathname = location.pathname;
+    // 精确匹配 /users 路由
+    if (pathname.startsWith('/users')) return ['users'];
+    // 其他都归到工作台
+    return ['workbench'];
+  })();
 
   const handleMenuClick = ({ key }: { key: string }) => {
-    const path = findPath(key);
-    if (path) navigate(path);
+    const item = menuItems.find((m) => m.key === key);
+    if (item) navigate(item.path);
   };
 
   const handleLogout = async () => {
@@ -65,77 +46,45 @@ export default function AppLayout() {
     navigate('/login');
   };
 
-  const userMenuItems = [
-    { key: 'profile', icon: <UserOutlined />, label: '个人中心' },
-    { key: 'logout', icon: <LogoutOutlined />, label: '退出登录' },
-  ];
-
   const handleUserMenuClick = ({ key }: { key: string }) => {
     if (key === 'logout') handleLogout();
     else if (key === 'profile') navigate('/profile');
   };
 
-  // 计算选中的菜单 key
-  const selectedKeys = menuItems
-    .flatMap((item) => [item, ...(item.children ?? [])])
-    .filter((item) => location.pathname.startsWith(item.path))
-    .sort((a, b) => b.path.length - a.path.length)
-    .slice(0, 1)
-    .map((item) => item.key);
-
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      <Sider
-        trigger={null}
-        collapsible
-        collapsed={sidebarCollapsed}
-        breakpoint="lg"
-        onBreakpoint={(broken) => setSidebarCollapsed(broken)}
+      <Header
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 24px',
+          background: colorBgContainer,
+          borderBottom: '1px solid #f0f0f0',
+        }}
       >
         <div
           style={{
-            height: 32,
-            margin: 16,
-            color: '#fff',
-            textAlign: 'center',
-            fontSize: sidebarCollapsed ? 14 : 18,
+            fontSize: 18,
             fontWeight: 'bold',
-            lineHeight: '32px',
+            marginRight: 40,
+            color: '#1677ff',
+            cursor: 'pointer',
+            whiteSpace: 'nowrap',
           }}
+          onClick={() => navigate('/')}
         >
-          {sidebarCollapsed ? 'EU' : 'Echo Union'}
+          Echo Union
         </div>
         <Menu
-          theme="dark"
-          mode="inline"
+          mode="horizontal"
           selectedKeys={selectedKeys}
           items={antdMenuItems}
           onClick={handleMenuClick}
+          style={{ flex: 1, border: 'none' }}
         />
-      </Sider>
-      <Layout>
-        <Header
-          style={{
-            padding: '0 24px',
-            background: colorBgContainer,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-          }}
-        >
-          <Button
-            type="text"
-            icon={
-              sidebarCollapsed ? (
-                <MenuUnfoldOutlined />
-              ) : (
-                <MenuFoldOutlined />
-              )
-            }
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <Dropdown
-            menu={{ items: userMenuItems, onClick: handleUserMenuClick }}
+            menu={{ items: userDropdownItems, onClick: handleUserMenuClick }}
             placement="bottomRight"
           >
             <div
@@ -146,23 +95,23 @@ export default function AppLayout() {
                 gap: 8,
               }}
             >
-              <Avatar icon={<UserOutlined />} />
+              <Avatar icon={<UserOutlined />} size="small" />
               <span>{user?.name}</span>
             </div>
           </Dropdown>
-        </Header>
-        <Content
-          style={{
-            margin: 24,
-            padding: 24,
-            background: colorBgContainer,
-            borderRadius: borderRadiusLG,
-            minHeight: 280,
-          }}
-        >
-          <Outlet />
-        </Content>
-      </Layout>
+        </div>
+      </Header>
+      <Content
+        style={{
+          margin: 24,
+          padding: 24,
+          background: colorBgContainer,
+          borderRadius: borderRadiusLG,
+          minHeight: 280,
+        }}
+      >
+        <Outlet />
+      </Content>
     </Layout>
   );
 }

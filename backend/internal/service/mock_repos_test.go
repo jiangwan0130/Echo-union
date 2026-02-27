@@ -69,6 +69,21 @@ func (m *mockSemesterRepo) ClearActive(_ context.Context) error {
 	return nil
 }
 
+func (m *mockSemesterRepo) HasOverlap(_ context.Context, startDate, endDate string, excludeID string) (bool, error) {
+	start, _ := time.Parse("2006-01-02", startDate)
+	end, _ := time.Parse("2006-01-02", endDate)
+	for _, s := range m.semesters {
+		if excludeID != "" && s.SemesterID == excludeID {
+			continue
+		}
+		// 重叠判定: s.start < end && s.end > start
+		if s.StartDate.Before(end) && s.EndDate.After(start) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // ── Mock TimeSlotRepository ──
 
 type mockTimeSlotRepo struct {

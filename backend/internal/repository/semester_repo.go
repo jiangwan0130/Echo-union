@@ -17,6 +17,8 @@ type SemesterRepository interface {
 	Update(ctx context.Context, semester *model.Semester) error
 	Delete(ctx context.Context, id string, deletedBy string) error
 	ClearActive(ctx context.Context) error
+	// HasOverlap 检查给定日期范围是否与已有学期重叠（排除 excludeID 自身）
+	HasOverlap(ctx context.Context, startDate, endDate string, excludeID string) (bool, error)
 }
 
 type semesterRepo struct {
@@ -82,4 +84,20 @@ func (r *semesterRepo) ClearActive(ctx context.Context) error {
 		Model(&model.Semester{}).
 		Where("is_active = ?", true).
 		Update("is_active", false).Error
+}
+
+// HasOverlap 检查给定日期范围是否与已有学期重叠（排除 excludeID 自身）
+func (r *semesterRepo) HasOverlap(ctx context.Context, startDate, endDate string, excludeID string) (bool, error) {
+	query := r.db.WithContext(ctx).
+		Model(&model.Semester{}).
+		Where("start_date < ? AND end_date > ?", endDate, startDate). // 日期范围重叠判定
+		Where("deleted_at IS NULL")
+	if excludeID != "" {
+		query = query.Where("semester_id != ?", excludeID)
+	}
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }

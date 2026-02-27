@@ -11,6 +11,7 @@ export {
   locationApi,
   scheduleRuleApi,
   systemConfigApi,
+  notificationApi,
 } from './configApi';
 export { exportApi } from './exportApi';
 export { showError, extractErrorMessage, extractErrorCode } from './errorHandler';

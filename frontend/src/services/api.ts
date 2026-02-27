@@ -47,7 +47,22 @@ const processQueue = (error: unknown, token: string | null = null) => {
 };
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // 统一适配列表接口返回格式：如果 data.data 是含 list 属性的对象，自动展开为数组
+    const body = response.data;
+    if (
+      body &&
+      typeof body === 'object' &&
+      'data' in body &&
+      body.data !== null &&
+      typeof body.data === 'object' &&
+      !Array.isArray(body.data) &&
+      Array.isArray((body.data as Record<string, unknown>).list)
+    ) {
+      body.data = (body.data as Record<string, unknown>).list;
+    }
+    return response;
+  },
   async (error: AxiosError<ApiResponse>) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean;

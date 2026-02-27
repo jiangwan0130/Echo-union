@@ -28,6 +28,19 @@ export interface UserListParams extends PaginationParams {
   keyword?: string;
 }
 
+export interface CreateUserRequest {
+  name: string;
+  student_id: string;
+  email: string;
+  role: UserRole;
+  department_id: string;
+}
+
+export interface CreateUserResponse {
+  user: UserInfo;
+  temp_password: string;
+}
+
 export interface UpdateUserRequest {
   name?: string;
   email?: string;

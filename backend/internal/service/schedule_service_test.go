@@ -306,13 +306,19 @@ func TestScheduleService_GetMySchedule_Success(t *testing.T) {
 	req := &dto.AutoScheduleRequest{SemesterID: "sem-1"}
 	_, _ = svc.AutoSchedule(context.Background(), req, "admin-1")
 
-	items, err := svc.GetMySchedule(context.Background(), "sem-1", "user-1")
+	result, err := svc.GetMySchedule(context.Background(), "sem-1", "user-1")
 	if err != nil {
 		t.Fatalf("GetMySchedule 应成功: %v", err)
 	}
-	// user-1 应至少有一些排班项
-	if items == nil {
+	// user-1 应至少分配到排班表中
+	if result == nil {
 		t.Fatal("结果不应为 nil")
+	}
+	if result.ID == "" {
+		t.Error("排班表ID不应为空")
+	}
+	if result.SemesterID != "sem-1" {
+		t.Errorf("期望 semester_id=sem-1，实际=%s", result.SemesterID)
 	}
 }
 

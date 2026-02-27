@@ -45,8 +45,7 @@ export default function SemesterTab() {
     setLoading(true);
     try {
       const { data } = await semesterApi.list();
-      const raw = data.data;
-      setSemesters(Array.isArray(raw) ? raw : (raw as unknown as { list: SemesterInfo[] }).list ?? []);
+      setSemesters(data.data as SemesterInfo[]);
     } catch {
       message.error('获取学期列表失败');
     } finally {

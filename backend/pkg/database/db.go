@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
@@ -12,9 +13,20 @@ import (
 )
 
 // NewDB 初始化 PostgreSQL 数据库连接
-func NewDB(cfg *config.DatabaseConfig, logger *zap.Logger) (*gorm.DB, error) {
+func NewDB(cfg *config.DatabaseConfig, logLevel string, logger *zap.Logger) (*gorm.DB, error) {
+	// 根据应用日志级别动态设置 GORM 日志级别
+	gormLogLevel := gormlogger.Warn // 生产环境默认 Warn
+	switch logLevel {
+	case "debug":
+		gormLogLevel = gormlogger.Info
+	case "info":
+		gormLogLevel = gormlogger.Warn
+	case "warn", "error":
+		gormLogLevel = gormlogger.Error
+	}
+
 	gormCfg := &gorm.Config{
-		Logger: gormlogger.Default.LogMode(gormlogger.Info),
+		Logger: gormlogger.Default.LogMode(gormLogLevel),
 	}
 
 	db, err := gorm.Open(postgres.Open(cfg.DSN()), gormCfg)
@@ -38,6 +50,18 @@ func NewDB(cfg *config.DatabaseConfig, logger *zap.Logger) (*gorm.DB, error) {
 	}
 	sqlDB.SetMaxOpenConns(maxOpen)
 	sqlDB.SetMaxIdleConns(maxIdle)
+
+	// 连接生命周期配置（防止长连接超时成为僵尸连接）
+	connMaxLifetime := cfg.ConnMaxLifetime
+	if connMaxLifetime <= 0 {
+		connMaxLifetime = 60 // 默认 60分钟
+	}
+	connMaxIdleTime := cfg.ConnMaxIdleTime
+	if connMaxIdleTime <= 0 {
+		connMaxIdleTime = 30 // 默认 30分钟
+	}
+	sqlDB.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Minute)
+	sqlDB.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Minute)
 
 	if err := sqlDB.Ping(); err != nil {
 		return nil, fmt.Errorf("数据库 ping 失败: %w", err)

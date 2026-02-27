@@ -102,6 +102,7 @@ export default function ProfilePage() {
           <Form.Item
             name="email"
             rules={[
+              { required: true, message: '请输入邮箱' },
               { type: 'email', message: '请输入有效的邮箱地址' },
             ]}
           >

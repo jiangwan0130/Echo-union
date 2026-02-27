@@ -46,7 +46,7 @@ func (h *TimetableHandler) ImportICS(c *gin.Context) {
 		defer file.Close()
 		resp, err := h.svc.ImportICS(c.Request.Context(), file, userID, semesterID)
 		if err != nil {
-			handleTimetableError(c, err)
+			h.handleTimetableError(c, err)
 			return
 		}
 		response.Created(c, resp)
@@ -85,7 +85,7 @@ func (h *TimetableHandler) ImportICS(c *gin.Context) {
 
 	resp, err := h.svc.ImportICS(c.Request.Context(), body, userID, semesterID)
 	if err != nil {
-		handleTimetableError(c, err)
+		h.handleTimetableError(c, err)
 		return
 	}
 	response.Created(c, resp)
@@ -102,7 +102,7 @@ func (h *TimetableHandler) GetMyTimetable(c *gin.Context) {
 
 	resp, err := h.svc.GetMyTimetable(c.Request.Context(), userID, semesterID)
 	if err != nil {
-		handleTimetableError(c, err)
+		h.handleTimetableError(c, err)
 		return
 	}
 	response.OK(c, resp)
@@ -118,13 +118,13 @@ func (h *TimetableHandler) CreateUnavailableTime(c *gin.Context) {
 
 	var req dto.CreateUnavailableTimeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, 15000, err.Error())
+		response.BadRequest(c, 10001, "参数校验失败")
 		return
 	}
 
 	resp, err := h.svc.CreateUnavailableTime(c.Request.Context(), &req, userID)
 	if err != nil {
-		handleTimetableError(c, err)
+		h.handleTimetableError(c, err)
 		return
 	}
 	response.Created(c, resp)
@@ -141,13 +141,13 @@ func (h *TimetableHandler) UpdateUnavailableTime(c *gin.Context) {
 
 	var req dto.UpdateUnavailableTimeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, 15000, err.Error())
+		response.BadRequest(c, 10001, "参数校验失败")
 		return
 	}
 
 	resp, err := h.svc.UpdateUnavailableTime(c.Request.Context(), id, &req, userID)
 	if err != nil {
-		handleTimetableError(c, err)
+		h.handleTimetableError(c, err)
 		return
 	}
 	response.OK(c, resp)
@@ -164,7 +164,7 @@ func (h *TimetableHandler) DeleteUnavailableTime(c *gin.Context) {
 
 	err := h.svc.DeleteUnavailableTime(c.Request.Context(), id, userID)
 	if err != nil {
-		handleTimetableError(c, err)
+		h.handleTimetableError(c, err)
 		return
 	}
 	response.OK(c, nil)
@@ -184,7 +184,7 @@ func (h *TimetableHandler) SubmitTimetable(c *gin.Context) {
 
 	resp, err := h.svc.SubmitTimetable(c.Request.Context(), userID, req.SemesterID)
 	if err != nil {
-		handleTimetableError(c, err)
+		h.handleTimetableError(c, err)
 		return
 	}
 	response.OK(c, resp)
@@ -197,7 +197,7 @@ func (h *TimetableHandler) GetProgress(c *gin.Context) {
 
 	resp, err := h.svc.GetProgress(c.Request.Context(), semesterID)
 	if err != nil {
-		handleTimetableError(c, err)
+		h.handleTimetableError(c, err)
 		return
 	}
 	response.OK(c, resp)
@@ -211,14 +211,14 @@ func (h *TimetableHandler) GetDepartmentProgress(c *gin.Context) {
 
 	resp, err := h.svc.GetDepartmentProgress(c.Request.Context(), departmentID, semesterID)
 	if err != nil {
-		handleTimetableError(c, err)
+		h.handleTimetableError(c, err)
 		return
 	}
 	response.OK(c, resp)
 }
 
 // handleTimetableError 统一时间表模块错误映射
-func handleTimetableError(c *gin.Context, err error) {
+func (h *TimetableHandler) handleTimetableError(c *gin.Context, err error) {
 	switch {
 	case errors.Is(err, service.ErrTimetableNoActiveSemester):
 		response.ErrorWithDetails(c, http.StatusBadRequest, 15002, "无活动学期", err.Error())
